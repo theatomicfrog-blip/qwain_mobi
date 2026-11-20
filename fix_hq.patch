@@ -1,0 +1,21 @@
+--- cpp_source/europeawarddialog.cpp
++++ cpp_source/europeawarddialog.cpp
+@@ -62,6 +62,7 @@
+     
+     // Check required stations (4U1A, 4U2U, 4U0R, 4UNR, 4Y1A, C7A)
+     bool hqWorked = false;
++    bool memberWorked = false; // We can't automatically verify members without a list
+     for (const QString &call : m_allQsos.keys()) {
+         QString c = call.toUpper();
+         if (c.startsWith("4U1A") || c.startsWith("4U2U") || c.startsWith("4U0R") || c.startsWith("4UNR") || c.startsWith("4Y1A") || c.startsWith("C7A")) {
+@@ -75,8 +76,10 @@
+     QTextEdit *desc = new QTextEdit(this);
+     desc->setReadOnly(true);
+     desc->setHtml("<b>Description of Award:</b><br/>"
+                   "Worked and confirmed 43 European countries (UN member States) on any HF Bands (160-10m including WARC).<br/><br/>"
+                   "1 QSO with any 4U1A, 4U2U, 4U0R (or 4UNR), 4Y1A or C7A stations is obligatory<br/>"
++                  "and 1 QSO with any 4U1A Members.<br/><br/>"
+                   "<b>HQ Station requirement:</b> " + QString(hqWorked ? "<span style='color:green;'>MET</span>" : "<span style='color:red;'>NOT MET</span>") +
++                  "<br/><b>4U1A Member requirement:</b> <span style='color:orange;'>Manual Verification Required</span>");
+     desc->setMaximumHeight(150);
+     leftLayout->addWidget(desc);

@@ -1,0 +1,3 @@
+556:    QPushButton *lookupBtn = new QPushButton("QSO Search", this);
+969:        QStringList history = settings.value("qsoSearchHistory").toStringList();
+3124:        settings.setValue("qsoSearchHistory", history);

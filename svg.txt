@@ -1,0 +1,25 @@
+=== SVG/Map Render Patch Report ===
+
+Issue 1: Hawaii counties not rendering:
+  - FIPS Mapping: The SVG had correct IDs (e.g., `c15001`), but matching failed due to variations in ADIF logging (e.g. "HI,HAWAII COUNTY" vs "HI,HAWAII").
+  - Fix: Added a robust normalization layer (`normWorkedCounties`) directly evaluating the SVG loop. We now strip suffixes (" COUNTY", " BOROUGH", " CITY", etc.) unconditionally to properly align FIPS to logs perfectly.
+  - Resolved: Hawaii (Hawaii, Maui, Kalawao, Honolulu, Kauai).
+
+Issue 2: Select Alaska counties not rendering:
+  - FIPS Mapping: Alaska's naming conventions (e.g. "CITY AND BOROUGH", "CENSUS AREA", "MUNICIPALITY") prevented `testmapdialog.cpp` checks from aligning perfectly. Also, several SVG shapes were unmapped from `us_counties_map.svg` using non-standard IDs due to SVG optimization artifacts (`path6497`, etc.).
+  - Fix: First, the new county name normalizer properly fuzzy matches incoming strings ("AK,WRANGELL" mapped easily). 
+  - Fix: We explicitly associated unmapped SVG paths to their FIPS equivalent inside the renderer payload `fMap`. 
+    - `AK,PETERSBURG BOROUGH` -> `path6542`
+    - `AK,WRANGELL CITY AND BOROUGH` -> `path6556`
+    - `AK,SKAGWAY MUNICIPALITY` -> `path6510`
+    - `AK,HOONAH-ANGOON CENSUS AREA` -> `path6581`
+    - `AK,PRINCE OF WALES-HYDER` -> mapped dynamically to `path6497` and secondary fragments `path6540`.
+  - Resolved: Wrangell, Petersburg, Juneau, Skagway, Hoonah-Angoon, Sitka, and Prince of Wales.
+
+Issue 3: Maryland (Somerset):
+  - FIPS Mapping: Previously we isolated the `Somerset__MD` master path. However, Chesapeake/ocean rendering fragments caused `path7707` to detach from rendering payload. Somerset ADIF logging also could mismatch if suffixes vary.
+  - Fix: Included `.path7707, #path7707` fragment injection rules directly tied to `MD,SOMERSET` logic blocks. The normalizer also secures `MD,SOMERSET`.
+  - Resolved: Somerset, MD (alongside fragments/islands).
+
+Conclusion: 
+The C++ core renderer for US Counties now inherently includes adaptive matching rules, patching all `class="c"` absences with their raw ID identifiers `pathXXXX` via dynamic CSS injection directly into the HTML preview DOM payload.

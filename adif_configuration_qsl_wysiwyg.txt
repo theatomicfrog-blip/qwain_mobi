@@ -1,0 +1,53 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ AdifMonitor 1.01 rc1 Beta                         [MainWindow]  1025×507     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  [File] [Configuration] [Award Tracking] [Misc] [Viewports] [QSL Handling] │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  12/06/2026                    21:04:58 UTC                                  │
+│                                                                              │
+│  [QComboBox]                    [QSO Search]                                 │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ QTextBrowser (804×467)                                                 │ │
+│  │  Send Paper QSL  N5PA  Name: CHARLES A CLARK...                        │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+◉ ACTIVE WINDOW:
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ QSL Manager (WYSIWYG)                           [QslDesigner]   1280×662    │
+├───────────────────────┬──────────────────────────────────────────────────────┤
+│                       │  Combo (75×32)                                       │
+│ MyGraphicsView        │                                                      │
+│ (764×642) - Canvas    │  ┌────────────────────────────────────────────────┐ │
+│                       │  │ QFrame (483×381)                               │ │
+│  [Graphics canvas     │  │                                                  │ │
+│   for QSL design]     │  │ <b>Cards</b>              <b>Envelopes</b>      │ │
+│                       │  │ ┌──────────────┐        ┌──────────────┐        │ │
+│                       │  │ │ QListWidget  │        │ QListWidget  │        │ │
+│                       │  │ │ (231×137)    │        │ (230×137)    │        │ │
+│                       │  │ └──────────────┘        └──────────────┘        │ │
+│                       │  │                                                  │ │
+│                       │  │ [New] [Duplicate] [Load] [Undo] [Preview]        │ │
+│                       │  │ [Rename] [Delete] [Save]    (86×62 each)        │ │
+│                       │  └────────────────────────────────────────────────┘ │
+│                       │                                                      │
+│                       │  X: 0.54 inches   Y: 0.83 inches                    │
+│                       │                                                      │
+│                       │  [Print Dir] [Add] [Remove] [Ref Point] [Fields]    │
+│                       │  [Size] [Toggle BG] [Set BG] [Checkmark]  (86×62)   │
+│                       │                                                      │
+└───────────────────────┴──────────────────────────────────────────────────────┘
+
+QSL Manager layout (QSplitter 1260×642):
+  ├─ MyGraphicsView (left, 764×642) - WYSIWYG graphics canvas for QSL design
+  └─ QWidget (right panel, 495×642):
+       ├─ QComboBox (75×32)
+       ├─ QFrame (483×381) with:
+       │    • Cards list (QListWidget 231×137)
+       │    • Envelopes list (QListWidget 230×137)
+       │    • 8 tool buttons: New, Duplicate, Load, Undo, Preview, Rename, Delete, Save
+       ├─ QLabel: "X: 0.54 inches   Y: 0.83 inches" (cursor position)
+       └─ 9 tool buttons (86×62): Print Dir, Add, Remove, Ref Point, Fields, Size, Toggle BG, Set BG, Checkmark

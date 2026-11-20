@@ -1,0 +1,25 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                             QSLManager Processing                            │
+│                                                                              │
+│   ┌────────┐    ┌─────────┐┌─────┐┌────────┐ X LOTW Member(checkbox)         │
+│   │callsign│ Or │Number of││Date ││Country/│ X QSL by Mail(checkbox)         │
+│   │ lookup │    │Contacts ││Range││DXCC    │                                 │
+│   └────────┘    └─────────┘└─────┘└────────┘                                 │
+│   ┌───────────────┐   ┌────────────────────────────┐ ┌───────────────┐       │
+│   │ Callsign Info │   │results from above searches │ │chosen callsign│       │
+│   │ (same as main)│   │  each column sort-able     │ └───────────────┘       │
+│   │ (call, addr)  │   .                            . ┌─────────┐             │
+│   └───────────────┘   .                            . │Print QSL│             │
+│   Past Contacts       .                            . └─────────┘             │
+│   ┌───────────┐                                                              │
+│   │ same as   │                                                              │
+│   .mainwindow .                                                              │
+│   .           .                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                      ┌──────┐│
+│                                                                      │logo.c││
+│                                                                      └──────┘│
+└──────────────────────────────────────────────────────────────────────────────┘
+
+

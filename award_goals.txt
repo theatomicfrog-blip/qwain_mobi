@@ -1,0 +1,9 @@
+{
+  "img1": "https://4u1a.club/wp-content/uploads/2023/09/AW-EU-650x519-1-300x240.png",
+  "img2": "https://4u1a.club/wp-content/uploads/2023/09/AW-AS-650x519-1-300x240.png",
+  "img3": "https://4u1a.club/wp-content/uploads/2023/09/AW-NA-650x519-1-300x240.png",
+  "img4": "https://4u1a.club/wp-content/uploads/2023/09/AW-SA-650x519-1-300x240.png",
+  "img5": "https://4u1a.club/wp-content/uploads/2023/09/AW-AF-650x519-1-300x240.png",
+  "img6": "https://4u1a.club/wp-content/uploads/2023/09/AW-OK-650x519-1-300x240.png",
+  "img7": "https://4u1a.club/wp-content/uploads/2023/09/AW-ANT-650x519-1-240x300.png"
+}

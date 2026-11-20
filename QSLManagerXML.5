@@ -1,0 +1,33 @@
+.TH QSLMANAGERXML 5 "June 2026" "QSLManager 1.0" "File Formats Manual"
+.SH NAME
+QSLManagerXML \- QSL Layout XML and Award Definition Specification
+.SH SYNOPSIS
+A comprehensive XML layout schema specification for defined awards and QSL card layouts (with dynamic goal generation attributes).
+.SH DESCRIPTION
+.B QSLManagerXML
+defines the standard XML implementation schema enabling flexible parsing of dynamic awards logic and rendered card formats across AdifMonitor instances.
+.PP
+The schema handles validation and generation of:
+.IP \[bu] 3
+QSL card rendering measurements and layouts (positions, fonts, checklists).
+.IP \[bu]
+Award Tracking Metadata directly coupling logical goals to presentation layers.
+.IP \[bu]
+QSO Log Structure parsing definitions.
+.SH FORMAT STRUCTURE
+The primary node is 
+.B <QSLLayout>
+with attributes denoting formatting rules (e.g. \fBdateFormat\fP, \fBtimeFormat\fP).
+.PP
+.B Checkboxes
+and
+.B Fields
+derive physical coordinate boundaries on printed definitions while actively hooking onto dynamically populated attributes parsing straight from defined goals within the SQLite and JSON configurations.
+.SH AWARD CRITERIA BINDINGS
+The XML integrates natively with award tracking rules using the 
+.B <AwardCriteria> 
+block. This node optionally hosts \fBawardName\fP, \fBAuthor\fP, and localized plain English \fBCriteriaDescription\fP tags, along with nested generic \fBCriteriaRule\fP string arrays bridging AdifMonitor criteria checks into portable definitions.
+.SH VALIDATION
+Compliant documents validate successfully against \fBqsl_layout.xsd\fP ensuring data safety.
+.SH SEE ALSO
+\fBadifmanager\fP(1)

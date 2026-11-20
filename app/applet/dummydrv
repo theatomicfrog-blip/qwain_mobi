@@ -1,0 +1,77 @@
+#!/bin/bash
+# ==============================================================================
+# dummydrv - Sophisticated CUPS Virtual/Dummy Printer Capture Backend
+# Captures and logs print jobs down to raw streams, environment variables, 
+# and CLI metadata arguments.
+# ==============================================================================
+
+# 1. CUPS Backend Discovery Mode
+# When run with no arguments by CUPS, the backend must report its existence.
+if [ -z "$1" ]; then
+    echo "direct dummydrv \"Unknown\" \"Dummy Capture Printer (dummydrv)\""
+    exit 0
+fi
+
+# 2. Extract standard CUPS job arguments
+JOB_ID="$1"
+JOB_USER="$2"
+JOB_TITLE="$3"
+JOB_COPIES="$4"
+JOB_OPTIONS="$5"
+INPUT_FILE="$6"
+
+# 3. Establish output analysis directory
+LOG_DIR="/tmp/dummydrv"
+mkdir -p "$LOG_DIR"
+chmod 777 "$LOG_DIR"
+
+LOG_FILE="$LOG_DIR/dummydrv_analysis.log"
+JOB_DATA_FILE="$LOG_DIR/job_${JOB_ID}_data.bin"
+
+# 4. Gather job metadata and environment details
+{
+    echo "================================================================================"
+    echo "                      PRINT JOB CAPTURED BY DUMMYDRV"
+    echo "================================================================================"
+    echo "Captured Time : $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "Job ID        : $JOB_ID"
+    echo "User          : $JOB_USER"
+    echo "Title         : $JOB_TITLE"
+    echo "Copies        : $JOB_COPIES"
+    echo "Options       : $JOB_OPTIONS"
+    echo "Source File   : ${INPUT_FILE:-<stdin>}"
+    echo "--------------------------------------------------------------------------------"
+    echo "CUPS Environment Variables:"
+    env | grep -E "^(CUPS_|PRINTER|DEVICE_|CONTENT_TYPE|CHARSET|LANG|PPD)" | sort
+    echo "--------------------------------------------------------------------------------"
+} >> "$LOG_FILE"
+
+# 5. Capture the raw print payload stream (PDF, PostScript, PCL, etc.)
+if [ -n "$INPUT_FILE" ] && [ -f "$INPUT_FILE" ]; then
+    # Payload is passed as a file path
+    cp "$INPUT_FILE" "$JOB_DATA_FILE"
+    PAYLOAD_SIZE=$(wc -c < "$JOB_DATA_FILE")
+    echo "Payload Origin: Copied from file ($INPUT_FILE)" >> "$LOG_FILE"
+    echo "Payload Size  : $PAYLOAD_SIZE bytes" >> "$LOG_FILE"
+else
+    # Payload is piped in via stdin
+    cat > "$JOB_DATA_FILE"
+    PAYLOAD_SIZE=$(wc -c < "$JOB_DATA_FILE")
+    echo "Payload Origin: Captured from stdin pipe" >> "$LOG_FILE"
+    echo "Payload Size  : $PAYLOAD_SIZE bytes" >> "$LOG_FILE"
+fi
+
+# 6. Perform simple file type diagnostics if possible
+if command -v file >/dev/null 2>&1; then
+    DETECTED_TYPE=$(file "$JOB_DATA_FILE")
+    echo "Detected Type : $DETECTED_TYPE" >> "$LOG_FILE"
+else
+    echo "Detected Type : 'file' utility not available for MIME-type detection." >> "$LOG_FILE"
+fi
+
+echo "Saved Raw Data : $JOB_DATA_FILE" >> "$LOG_FILE"
+echo "================================================================================" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"
+
+# Signal success to CUPS
+exit 0

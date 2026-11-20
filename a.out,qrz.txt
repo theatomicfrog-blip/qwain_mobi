@@ -1,0 +1,31 @@
+=== Next 5 uploads (batch 1) ===
+  1: call=W4DJF, call2=N7DX, logid=1236996218, qso_date=20250302, band=10m, mode=SSB, mode1=SSB, tx_pwr=33
+  2: call=W4DJF, call2=KT8Z, logid=1240770535, qso_date=20250309, band=30m, mode=FT8, mode1=FT8, tx_pwr=85
+  3: call=W4DJF, call2=AA4NP, logid=1240971492, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=9
+  4: call=W4DJF, call2=AD9GE, logid=1240974366, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=97
+  5: call=W4DJF, call2=KM4SDB, logid=1240982443, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=29
+
+Continue? (C to continue, any other key to stop): C
+
+Uploading call=W4DJF, call2=N7DX, logid=1236996218, qso_date=20250302, band=10m, mode=SSB, mode1=SSB, tx_pwr=69...
+  ✓ Success: COUNT=1&RESULT=OK&LOGID=1464101925
+
+Uploading call=W4DJF, call2=KT8Z, logid=1240770535, qso_date=20250309, band=30m, mode=FT8, mode1=FT8, tx_pwr=57...
+  ✓ Success: COUNT=1&LOGID=1464101926&RESULT=OK
+
+Uploading call=W4DJF, call2=AA4NP, logid=1240971492, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=21...
+  ✓ Success: RESULT=OK&LOGID=1464101927&COUNT=1
+
+Uploading call=W4DJF, call2=AD9GE, logid=1240974366, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=53...
+  ✓ Success: COUNT=1&LOGID=1464101927&RESULT=REPLACE
+
+Uploading call=W4DJF, call2=KM4SDB, logid=1240982443, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=69...
+  ✓ Success: RESULT=REPLACE&LOGID=1464101927&COUNT=1
+  Pausing 2 seconds...
+
+=== Next 5 uploads (batch 2) ===
+  1: call=W4DJF, call2=W4MAA, logid=1241008724, qso_date=20250309, band=40m, mode=FT8, mode1=FT8, tx_pwr=85
+  2: call=W4DJF, call2=K1BMW, logid=1241041378, qso_date=20250309, band=10m, mode=FT8, mode1=FT8, tx_pwr=29
+  3: call=W4DJF, call2=KB3Z, logid=1242607819, qso_date=20250311, band=30m, mode=FT8, mode1=FT8, tx_pwr=9
+  4: call=W4DJF, call2=KF7B, logid=1242619488, qso_date=20250311, band=10m, mode=FT8, mode1=FT8, tx_pwr=81
+  5: call=W4DJF, call2=KI0E, logid=1243440173, qso_date=20250313, band=10m, mode=FT8, mode1=FT8, tx_pwr=89

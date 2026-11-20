@@ -1,0 +1,60 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ AdifMonitor 1.01 rc1 Beta                         [MainWindow]  1025×507     │
+├────────────┬─────────────────────────────────────────────────────────────────┤
+│            │  [File] [Configuration] [Award Tracking] [Misc] [Viewports]     │
+│ QListWidget│  [QSL Handling] [About]                                         │
+│  (200×660) │                                                                  │
+│            │  12/06/2026                          20:59:36 UTC               │
+│  • Options │  [QLabel date]                         [QLabel time]             │
+│  • Page 2  │  [QComboBox]                           [QSO Search]              │
+│  • ...     │                                                                  │
+│            │  ┌──────────────────────────────────────────────────────────┐  │
+│            │  │ QTextBrowser (804×467)                                   │  │
+│            │  │                                                          │  │
+│            │  │  Send Paper QSL                                          │  │
+│            │  │  N5PA                                                    │  │
+│            │  │  Name: CHARLES A CLARK                                   │  │
+│            │  │  Address: 23 Meadow Lake Drive                           │  │
+│            │  │  City: Ellisvil...                                       │  │
+│            │  │                                                          │  │
+│            │  └──────────────────────────────────────────────────────────┘  │
+│            │                                                                  │
+└────────────┴─────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Configure User Interface                          [ConfigDialog]  950×720    │
+├────────────┬─────────────────────────────────────────────────────────────────┤
+│ QListWidget│  Listen IP Address:  [QLineEdit: 0.0.0.0            (597×32)]   │
+│  (200×660) │                                                                  │
+│            │  Protocol:           [QComboBox                     (64×32)]    │
+│  • General │                                                                  │
+│  • Network │  Listen Port:        [QSpinBox: 2345                  (70×32)]  │
+│  • ...     │                                                                  │
+│            │                                                                  │
+│            │                                                                  │
+│            │                                                                  │
+│            │                                                                  │
+│            │                                                                  │
+├────────────┴─────────────────────────────────────────────────────────────────┤
+│              [QDialogButtonBox]                                              │
+│              [&Cancel]  [&Apply]  [&OK]         (930×34)                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Layout structure:
+  MainWindow:
+    ├─ QListWidget (left sidebar, 200px wide)
+    └─ QWidget (main area):
+         ├─ ToolButton row (File, Configuration, Award Tracking, Misc, Viewports, QSL Handling, About)
+         ├─ Date label (12/06/2026)
+         ├─ Time label (20:59:36 UTC)
+         ├─ QComboBox + QSO Search button
+         └─ QTextBrowser (QSL paper display)
+
+  ConfigDialog:
+    ├─ QListWidget (left navigation, 200px wide)
+    └─ QStackedWidget (right content panel):
+         └─ QWidget (Network settings page):
+              ├─ Listen IP Address: QLineEdit (0.0.0.0)
+              ├─ Protocol: QComboBox
+              └─ Listen Port: QSpinBox (2345)
+    └─ QDialogButtonBox (&Cancel, &Apply, &OK) at bottom

@@ -1,0 +1,2 @@
+#!/bin/bash
+sed -i '/QPixmap getAppLogo() {/a \    QFile f("/tmp/qwain_logo_diag.txt"); \n    if (f.open(QIODevice::Append | QIODevice::Text)) { \n        QTextStream out(&f); \n        out << "getAppLogo called\\n"; \n        out << "  :/logo_QWAIN.png isNull: " << QPixmap(":/logo_QWAIN.png").isNull() << "\\n"; \n        out << "  logo_QWAIN.png isNull: " << QPixmap("logo_QWAIN.png").isNull() << "\\n"; \n        out << "  :/logo.png isNull: " << QPixmap(":/logo.png").isNull() << "\\n"; \n    }' cpp_source/main.cpp

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Qwain
+Comment=Amateur Radio Logbook
+Exec=Qwain
+Icon=logo_QWAIN
+Terminal=false
+Categories=Utility;HamRadio;

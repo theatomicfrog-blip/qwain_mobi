@@ -1,0 +1,7 @@
+clean_files/
+adifmonitor*.zip
+build/
+out/
+*.o
+*.obj
+*.exe

@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+  <!-- Root element -->
+  <xs:element name="QSLLayout" type="QSLLayoutType"/>
+
+  <!-- QSLLayout type -->
+  <xs:complexType name="QSLLayoutType">
+    <xs:sequence>
+      <xs:element name="DocumentSpec" type="DocumentSpecType"/>
+      <xs:element name="GlobalStyle" type="GlobalStyleType"/>
+      <xs:element name="Checkboxes" type="CheckboxesType"/>
+      <xs:element name="Field" type="FieldType" maxOccurs="unbounded"/>
+      <xs:element name="Table" type="TableType"/>
+      <xs:element name="ReferencePoint" type="ReferencePointType"/>
+      <xs:element name="AwardCriteria" type="AwardCriteriaType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="version" type="xs:string" use="required"/>
+    <xs:attribute name="encoding" type="xs:string" use="required"/>
+    <xs:attribute name="dateFormat" type="xs:string" use="required"/>
+    <xs:attribute name="timeFormat" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <!-- Award Criteria Integration -->
+  <xs:complexType name="AwardCriteriaType">
+    <xs:sequence>
+      <xs:element name="CriteriaDescription" type="xs:string" minOccurs="0"/>
+      <xs:element name="Author" type="xs:string" minOccurs="0"/>
+      <xs:element name="DateCreated" type="xs:string" minOccurs="0"/>
+      <xs:element name="CriteriaRule" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="org" type="xs:string" minOccurs="0"/>
+      <xs:element name="name" type="xs:string" minOccurs="0"/>
+      <xs:element name="desc" type="xs:string" minOccurs="0"/>
+      <xs:element name="req" type="xs:string" minOccurs="0"/>
+      <xs:element name="track" type="xs:string" minOccurs="0"/>
+      <xs:element name="url" type="xs:string" minOccurs="0"/>
+      <xs:element name="earnedByXML" type="xs:string" minOccurs="0"/>
+      <xs:element name="mapImage" type="xs:string" minOccurs="0"/>
+      <xs:element name="maidenhead" type="xs:boolean" minOccurs="0"/>
+      <xs:element name="xmlAuthor" type="xs:string" minOccurs="0"/>
+      <xs:element name="xmlDateCreated" type="xs:string" minOccurs="0"/>
+      <xs:element name="xmlCriteria" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="awardName" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <!-- DocumentSpec -->
+  <xs:complexType name="DocumentSpecType">
+    <xs:sequence>
+      <xs:element name="Page" type="PageType"/>
+      <xs:element name="Printer" type="PrinterType"/>
+      <xs:element name="BackgroundImage" type="BackgroundImageType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PageType">
+    <xs:attribute name="widthPx" type="xs:positiveDecimal" use="required"/>
+    <xs:attribute name="heightPx" type="xs:positiveDecimal" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="PrinterType">
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="orientation" type="OrientationType" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="OrientationType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Portrait"/>
+      <xs:enumeration value="Landscape"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="BackgroundImageType">
+    <xs:attribute name="path" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <!-- GlobalStyle -->
+  <xs:complexType name="GlobalStyleType">
+    <xs:sequence>
+      <xs:element name="Font" type="FontType"/>
+      <xs:element name="Color" type="ColorType"/>
+      <xs:element name="Rotation" type="RotationType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="FontType">
+    <xs:attribute name="family" type="xs:string" use="required"/>
+    <xs:attribute name="size" type="xs:positiveInteger" use="required"/>
+    <xs:attribute name="weight" type="xs:integer" use="required"/>
+    <xs:attribute name="style" type="xs:integer" use="required"/>
+    <xs:attribute name="charset" type="xs:integer" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="ColorType">
+    <xs:attribute name="hex" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="RotationType">
+    <xs:attribute name="degrees" type="xs:decimal" use="required"/>
+  </xs:complexType>
+
+  <!-- Checkboxes -->
+  <xs:complexType name="CheckboxesType">
+    <xs:sequence>
+      <xs:element name="CheckboxGroup" type="CheckboxGroupType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CheckboxGroupType">
+    <xs:sequence>
+      <xs:element name="Checkbox" type="CheckboxType" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="group" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CheckboxType">
+    <xs:sequence>
+      <xs:element name="DisplayText" type="xs:string"/>
+      <xs:element name="CellData" type="xs:string"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="x" type="xs:decimal" use="required"/>
+    <xs:attribute name="y" type="xs:decimal" use="required"/>
+    <xs:attribute name="labelLogical" type="xs:string" use="required"/>
+    <xs:attribute name="category" type="xs:string"/>
+    <xs:attribute name="antennaType" type="xs:string"/>
+    <xs:attribute name="radioModel" type="xs:string"/>
+    <xs:attribute name="type" type="CheckboxTypeType" use="required"/>
+    <xs:attribute name="required" type="xs:boolean" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="CheckboxTypeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="boolean"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Field -->
+  <xs:complexType name="FieldType">
+    <xs:sequence>
+      <xs:element name="Label" type="xs:string"/>
+      <xs:element name="DisplayText" type="xs:string"/>
+      <xs:element name="CellData" type="xs:string"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="x" type="xs:decimal" use="required"/>
+    <xs:attribute name="y" type="xs:decimal" use="required"/>
+    <xs:attribute name="type" type="FieldTypeType" use="required"/>
+    <xs:attribute name="maxLength" type="xs:positiveInteger"/>
+    <xs:attribute name="min" type="xs:decimal"/>
+    <xs:attribute name="max" type="xs:decimal"/>
+    <xs:attribute name="required" type="xs:boolean" use="required"/>
+    <xs:attribute name="category" type="xs:string"/>
+    <xs:attribute name="format" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:simpleType name="FieldTypeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="string"/>
+      <xs:enumeration value="integer"/>
+      <xs:enumeration value="decimal"/>
+      <xs:enumeration value="boolean"/>
+      <xs:enumeration value="date"/>
+      <xs:enumeration value="time"/>
+      <xs:enumeration value="dateTime"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Table -->
+  <xs:complexType name="TableType">
+    <xs:sequence>
+      <xs:element name="CellDataTemplate">
+        <xs:simpleType>
+          <xs:restriction base="xs:string"/>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="Columns" type="ColumnsType"/>
+      <xs:element name="QSOEntry" type="QSOEntryType"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="x" type="xs:decimal" use="required"/>
+    <xs:attribute name="y" type="xs:decimal" use="required"/>
+    <xs:attribute name="label" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="TableTypeType" use="required"/>
+    <xs:attribute name="repeatsPerPage" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="TableTypeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="repeating_qso_table"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="ColumnsType">
+    <xs:sequence>
+      <xs:element name="Column" type="ColumnType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ColumnType">
+    <xs:attribute name="index" type="xs:integer" use="required"/>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="ColumnTypeType" use="required"/>
+    <xs:attribute name="min" type="xs:decimal"/>
+    <xs:attribute name="max" type="xs:decimal"/>
+    <xs:attribute name="unit" type="xs:string"/>
+    <xs:attribute name="format" type="xs:string"/>
+    <xs:attribute name="maxLength" type="xs:positiveInteger"/>
+    <xs:attribute name="widthRel" type="xs:decimal" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="ColumnTypeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="integer"/>
+      <xs:enumeration value="decimal"/>
+      <xs:enumeration value="string"/>
+      <xs:enumeration value="time"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="QSOEntryType">
+    <xs:sequence>
+      <xs:element name="DAY" type="DayType"/>
+      <xs:element name="MONTH" type="MonthType"/>
+      <xs:element name="YEAR" type="YearType"/>
+      <xs:element name="TIME_ON" type="TimeType"/>
+      <xs:element name="FREQ" type="FreqType"/>
+      <xs:element name="MODE" type="ModeType"/>
+      <xs:element name="TX_PWR" type="TxPwrType"/>
+      <xs:element name="RST_SENT" type="RstType"/>
+      <xs:element name="RST_RCVD" type="RstType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Day: integer 1–31 -->
+  <xs:simpleType name="DayType">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="31"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Month: integer 1–12 -->
+  <xs:simpleType name="MonthType">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="12"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Year: integer 1900–2100 -->
+  <xs:simpleType name="YearType">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1900"/>
+      <xs:maxInclusive value="2100"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Time: HH:MM with pattern -->
+  <xs:simpleType name="TimeType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="^([01][0-9]|2[0-3]):[0-5][0-9]$"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Freq: decimal >= 0 -->
+  <xs:simpleType name="FreqType">
+    <xs:restriction base="xs:decimal">
+      <xs:minInclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Mode: string, maxLength 8 -->
+  <xs:simpleType name="ModeType">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="8"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- TX_PWR: decimal >= 0 -->
+  <xs:simpleType name="TxPwrType">
+    <xs:restriction base="xs:decimal">
+      <xs:minInclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- RST: string, maxLength 8 -->
+  <xs:simpleType name="RstType">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="8"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ReferencePoint -->
+  <xs:complexType name="ReferencePointType">
+    <xs:sequence>
+      <xs:element name="Label" type="xs:string"/>
+      <xs:element name="DisplayText" type="xs:string"/>
+      <xs:element name="CellData" type="xs:string"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="x" type="xs:decimal" use="required"/>
+    <xs:attribute name="y" type="xs:decimal" use="required"/>
+    <xs:attribute name="type" type="ReferencePointTypeType" use="required"/>
+    <xs:attribute name="visible" type="xs:boolean" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="ReferencePointTypeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="layout_anchor"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Callsign type with pattern -->
+  <xs:simpleType name="CallsignType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="^[A-Za-z]{1,3}[0-9][A-Za-z0-9]{1,3}(/[A-Za-z0-9]+)?$"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- POTA type with pattern -->
+  <xs:simpleType name="PotaType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="^POTA#[A-Za-z]{2}-[0-9]{1,4}|POTA#[0-9]{1,4}$"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- Date type with pattern (DD|MM|YYYY) -->
+  <xs:simpleType name="DateType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="^[0-3][0-9]\|[01][0-9]\|[12][0-9]{3}$"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

@@ -1,0 +1,11 @@
+{
+  "name": "Qwain",
+  "version": "1.02",
+  "description": "A Qt 5 C++ app",
+  "scripts": {
+    "start": "bash dev.sh",
+    "dev": "bash dev.sh",
+    "build": "echo 'Nothing to build'"
+  },
+  "dependencies": {}
+}

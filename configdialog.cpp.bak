@@ -1,0 +1,3857 @@
+// All rights reserved. Commercial use, redistribution, modification, or incorporation into any product or service requires prior written permission.
+// 
+// This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+// 
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+// 
+// You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#include <QMap>
+#include <QTabWidget>
+#include <QScrollArea>
+#include <QCoreApplication>
+#include "configdialog.h"
+#include "mainwindow.h"
+#include <QListWidget>
+#include <QStackedWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QPixmap>
+#include <QVariant>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QPushButton>
+#include <QToolButton>
+#include <QMenu>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QLabel>
+#include <QSettings>
+#include <QFileDialog>
+#include <QColorDialog>
+#include <QDialogButtonBox>
+#include <QMessageBox>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QTextEdit>
+#include <QTextBrowser>
+#include <QInputDialog>
+#include <QApplication>
+#include <QClipboard>
+#include <QStyle>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QRegularExpression>
+#include <QGraphicsView>
+#include <QGraphicsScene>
+#include <QGraphicsPixmapItem>
+#include <QWheelEvent>
+#include <QtMath>
+#include <QDir>
+#include <QTimer>
+#include <QStandardPaths>
+#include "paths.h"
+#include <QToolTip>
+#include <QShortcut>
+#ifndef QT_NO_XMLPATTERNS
+#include <QXmlSchema>
+#include <QXmlSchemaValidator>
+#endif
+#include <QSplitter>
+#include <QXmlStreamReader>
+#include <QAbstractItemView>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QSlider>
+#include "awards_data.h"
+
+class ClickEventFilter : public QObject {
+public:
+    std::function<void()> onClick;
+    ClickEventFilter(QObject* parent = nullptr) : QObject(parent) {}
+    bool eventFilter(QObject *obj, QEvent *event) override {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                if (onClick) onClick();
+            }
+        }
+        return QObject::eventFilter(obj, event);
+    }
+};
+
+#include <QPainter>
+
+class UnderDevelopmentOverlay : public QWidget {
+public:
+    UnderDevelopmentOverlay(QWidget *parent = nullptr) : QWidget(parent) {
+        // Intercept mouse events so they don't reach underlying widgets
+    }
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        // 25% gray, 75% transparent (alpha 64/255)
+        painter.fillRect(rect(), QColor(64, 64, 64, 64));
+        
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.translate(rect().center());
+        painter.rotate(-30); // diagonally
+        QFont font("Impact", 48, QFont::Bold);
+        font.setStyleStrategy(QFont::PreferAntialias);
+        painter.setFont(font);
+        painter.setPen(QColorConstants::Svg::yellow);
+        painter.drawText(QRect(-width(), -height(), width()*2, height()*2), Qt::AlignCenter, "Under Development");
+    }
+    void mousePressEvent(QMouseEvent *event) override { event->accept(); }
+    void mouseReleaseEvent(QMouseEvent *event) override { event->accept(); }
+    void mouseDoubleClickEvent(QMouseEvent *event) override { event->accept(); }
+    void mouseMoveEvent(QMouseEvent *event) override { event->accept(); }
+};
+
+ConfigDialog::ConfigDialog(QWidget *parent)
+    : QDialog(parent)
+{
+    m_netManager = new QNetworkAccessManager(this);
+    setWindowTitle(tr("Configure User Interface"));
+    setMinimumSize(600, 450);
+
+    m_contentsWidget = new QListWidget(this);
+    m_contentsWidget->setViewMode(QListView::ListMode);
+    m_contentsWidget->setIconSize(QSize(32, 32));
+    m_contentsWidget->setMovement(QListView::Static);
+    m_contentsWidget->setMaximumWidth(200);
+    m_contentsWidget->setSpacing(5);
+
+    m_pagesWidget = new QStackedWidget(this);
+
+    createNetworkPage();
+    createCredentialsPage();
+    createFeedsPage();
+    createLoggingPage();
+    createBackupPage();
+    createUIPage();
+    createPrintersPage();
+    createAwardsPage();
+    createStationPage();
+    createDebugPage();
+
+    createIcons();
+    m_contentsWidget->setCurrentRow(0);
+
+    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Apply | QDialogButtonBox::Cancel, this);
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &ConfigDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(buttonBox->button(QDialogButtonBox::Apply), &QPushButton::clicked, this, &ConfigDialog::applySettings);
+    
+    QPushButton *revertBtn = new QPushButton(tr("Revert"));
+    buttonBox->addButton(revertBtn, QDialogButtonBox::ResetRole);
+    connect(revertBtn, &QPushButton::clicked, this, [this](){
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("Revert Settings");
+        msgBox.setText("How would you like to revert colors and fonts?");
+        QPushButton *startBtn = msgBox.addButton("Revert to Start", QMessageBox::ActionRole);
+        QPushButton *defBtn = msgBox.addButton("Revert to Defaults", QMessageBox::ActionRole);
+        msgBox.addButton(QMessageBox::Cancel);
+        msgBox.exec();
+
+        if (msgBox.clickedButton() == startBtn) {
+            m_clockFont = m_initialClockFont; m_clockColor = m_initialClockColor;
+            m_feed1Font = m_initialFeed1Font; m_feed1Color = m_initialFeed1Color;
+            m_feed2Font = m_initialFeed2Font; m_feed2Color = m_initialFeed2Color;
+            m_feed3Font = m_initialFeed3Font; m_feed3Color = m_initialFeed3Color;
+            m_callInfoFont = m_initialCallInfoFont; m_callInfoColor = m_initialCallInfoColor;
+            m_qsoListFont = m_initialQsoListFont; m_qsoListColor = m_initialQsoListColor;
+            m_selectedColor = m_initialSelectedColor;
+            if(m_currentColorLabel) m_currentColorLabel->setText(m_selectedColor);
+            updateUIPreview();
+        } else if (msgBox.clickedButton() == defBtn) {
+            m_clockFont = QFont("Arial", 10); m_clockColor = Qt::white;
+            m_feed1Font = QFont("Arial", 10); m_feed1Color = Qt::white;
+            m_feed2Font = QFont("Arial", 10); m_feed2Color = Qt::white;
+            m_feed3Font = QFont("Arial", 10); m_feed3Color = Qt::white;
+            m_callInfoFont = QFont("Arial", 10); m_callInfoColor = Qt::white;
+            m_qsoListFont = QFont("Arial", 10); m_qsoListColor = Qt::white;
+            m_selectedColor = "#221e1f";
+            if(m_currentColorLabel) m_currentColorLabel->setText(m_selectedColor);
+            updateUIPreview();
+        }
+    });
+
+    QHBoxLayout *horizontalLayout = new QHBoxLayout;
+    horizontalLayout->addWidget(m_contentsWidget);
+    horizontalLayout->addWidget(m_pagesWidget, 1);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    mainLayout->addLayout(horizontalLayout);
+    mainLayout->addWidget(buttonBox);
+
+    setLayout(mainLayout);
+}
+
+void ConfigDialog::createIcons()
+{
+    QListWidgetItem *networkItem = new QListWidgetItem(m_contentsWidget);
+    networkItem->setText(tr("Network Configuration"));
+    networkItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *credItem = new QListWidgetItem(m_contentsWidget);
+    credItem->setText(tr("Credentials"));
+    credItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *feedsItem = new QListWidgetItem(m_contentsWidget);
+    feedsItem->setText(tr("Feeds"));
+    feedsItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *logItem = new QListWidgetItem(m_contentsWidget);
+    logItem->setText(tr("Logging"));
+    logItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *backupItem = new QListWidgetItem(m_contentsWidget);
+    backupItem->setText(tr("Backup/Restore"));
+    backupItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *uiItem = new QListWidgetItem(m_contentsWidget);
+    uiItem->setText(tr("User Interface"));
+    uiItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *printerItem = new QListWidgetItem(m_contentsWidget);
+    printerItem->setText(tr("Printers"));
+    printerItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *awardsItem = new QListWidgetItem(m_contentsWidget);
+    awardsItem->setText(tr("Award Goals"));
+    awardsItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *stationItem = new QListWidgetItem(m_contentsWidget);
+    stationItem->setText(tr("Station Information"));
+    stationItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    QListWidgetItem *debugItem = new QListWidgetItem(m_contentsWidget);
+    debugItem->setText(tr("Debug Information"));
+    debugItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    connect(m_contentsWidget, &QListWidget::currentItemChanged, this, &ConfigDialog::changePage);
+}
+
+void ConfigDialog::changePage(QListWidgetItem *current, QListWidgetItem *previous)
+{
+    if (!current)
+        current = previous;
+    m_pagesWidget->setCurrentIndex(m_contentsWidget->row(current));
+}
+
+void ConfigDialog::createNetworkPage()
+{
+    QWidget *page = new QWidget;
+    QFormLayout *layout = new QFormLayout(page);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    
+    m_protocolCombo = new QComboBox;
+    m_protocolCombo->addItem("TCP");
+    m_protocolCombo->addItem("UDP");
+    m_protocolCombo->setCurrentText(settings.value("Network/protocol", "TCP").toString());
+    
+    m_ipEdit = new QLineEdit(settings.value("Network/ip", "127.0.0.1").toString());
+    m_portSpin = new QSpinBox();
+    m_portSpin->setRange(1, 65535);
+    m_portSpin->setValue(settings.value("Network/port", 2345).toInt());
+    
+    layout->addRow(tr("Protocol:"), m_protocolCombo);
+    layout->addRow(tr("Listen IP Address:"), m_ipEdit);
+    layout->addRow(tr("Listen Port:"), m_portSpin);
+    
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::createCredentialsPage()
+{
+    QWidget *page = new QWidget;
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    
+    QFormLayout *topLayout = new QFormLayout;
+    // We instantiate m_stationCallsign here now instead of createStationPage
+    m_stationCallsign = new QLineEdit(settings.value("Station/Callsign", "N0CALL").toString());
+    m_gridEdit = new QLineEdit(settings.value("Station/Grid", "EM73").toString());
+    m_configDirEdit = new QLineEdit(settings.fileName());
+    m_configDirEdit->setReadOnly(true);
+    
+    QHBoxLayout *configFileLayout = new QHBoxLayout;
+    configFileLayout->addWidget(m_configDirEdit);
+    QPushButton *browseConfigFileBtn = new QPushButton(tr("Browse..."), this);
+    configFileLayout->addWidget(browseConfigFileBtn);
+    
+    topLayout->addRow(tr("Callsign:"), m_stationCallsign);
+    topLayout->addRow(tr("Grid:"), m_gridEdit);
+    topLayout->addRow(tr("Configuration file:"), configFileLayout);
+
+    QHBoxLayout *confButtonsLayout = new QHBoxLayout;
+    QPushButton *backupConfBtn = new QPushButton(tr("Backup Conf"), this);
+    QPushButton *restoreConfBtn = new QPushButton(tr("Restore Conf"), this);
+    confButtonsLayout->addWidget(backupConfBtn);
+    confButtonsLayout->addWidget(restoreConfBtn);
+    topLayout->addRow(tr(""), confButtonsLayout);
+
+    connect(backupConfBtn, &QPushButton::clicked, this, [this](){
+        QString file = QFileDialog::getSaveFileName(this, tr("Save Configuration Backup"), QDir::homePath(), "Config Files (*.conf *.ini);;All Files (*)");
+        if (!file.isEmpty()) {
+            applySettings();
+            QSettings settings(QCoreApplication::organizationName(), "Qwain");
+            settings.sync();
+            if (QFile::exists(file)) QFile::remove(file);
+            QFile::copy(settings.fileName(), file);
+            QMessageBox::information(this, "Success", "Configuration backed up successfully.");
+        }
+    });
+
+    connect(restoreConfBtn, &QPushButton::clicked, this, [this](){
+        QString path = QFileInfo(m_configDirEdit->text()).absolutePath();
+        QString file = QFileDialog::getOpenFileName(this, tr("Select Configuration to Restore"), path, "Config Files (*.conf *.ini);;All Files (*)");
+        if (!file.isEmpty()) {
+            QMessageBox::StandardButton reply = QMessageBox::question(this, "Restore", QString("OK to Apply Configuration %1?").arg(file), QMessageBox::Ok | QMessageBox::Cancel);
+            if (reply == QMessageBox::Ok) {
+                QSettings importedSettings(file, QSettings::IniFormat);
+                QSettings settings(QCoreApplication::organizationName(), "Qwain");
+                settings.clear();
+                for (const QString &key : importedSettings.allKeys()) {
+                    settings.setValue(key, importedSettings.value(key));
+                }
+                settings.sync();
+                
+                m_stationCallsign->setText(settings.value("Station/Callsign", "N0CALL").toString());
+                m_gridEdit->setText(settings.value("Station/Grid", "EM73").toString());
+                
+                auto updateList = [](QListWidget *list, const QStringList &vals) {
+                    list->clear();
+                    list->addItems(vals);
+                };
+                updateList(m_stationRadios, settings.value("Station/Radios").toStringList());
+                updateList(m_stationAntennas, settings.value("Station/Antennas").toStringList());
+                updateList(m_stationBands, settings.value("Station/Bands").toStringList());
+                updateList(m_stationChecks, settings.value("Station/Checks").toStringList());
+                updateList(m_stationAdifTags, settings.value("Station/AdifTags").toStringList());
+
+                m_protocolCombo->setCurrentText(settings.value("Network/protocol", "UDP").toString());
+                m_ipEdit->setText(settings.value("Network/ip", "127.0.0.1").toString());
+                m_portSpin->setValue(settings.value("Network/port", 2224).toInt());
+                
+                m_qrzUserEdit->setText(settings.value("Credentials/username", "").toString());
+                m_qrzPassEdit->setText(settings.value("Credentials/password", "").toString());
+                m_qrzApiKeyEdit->setText(settings.value("Credentials/qrzApiKey", "").toString());
+                m_lotwUserEdit->setText(settings.value("Credentials/lotwUser", "").toString());
+                m_lotwPassEdit->setText(settings.value("Credentials/lotwPass", "").toString());
+                m_clublogEmailEdit->setText(settings.value("Credentials/clublogEmail", "").toString());
+                m_clublogCallEdit->setText(settings.value("Credentials/clublogCall", "").toString());
+                m_clublogPassEdit->setText(settings.value("Credentials/clublogPass", "").toString());
+                m_eqslUserEdit->setText(settings.value("Credentials/eqslUser", "").toString());
+                m_eqslPassEdit->setText(settings.value("Credentials/eqslPass", "").toString());
+                
+                m_feed1Check->setChecked(settings.value("Feeds/feed1Enabled", false).toBool());
+                m_feed1UrlEdit->setText(settings.value("Feeds/feed1Url", "").toString());
+                m_feed1RefreshCombo->setCurrentText(settings.value("Feeds/feed1Refresh", "30 Minutes").toString());
+                m_feed2Check->setChecked(settings.value("Feeds/feed2Enabled", false).toBool());
+                m_feed2UrlEdit->setText(settings.value("Feeds/feed2Url", "").toString());
+                m_feed2RefreshCombo->setCurrentText(settings.value("Feeds/feed2Refresh", "30 Minutes").toString());
+                m_feed3Check->setChecked(settings.value("Feeds/feed3Enabled", false).toBool());
+                m_feed3UrlEdit->setText(settings.value("Feeds/feed3Url", "").toString());
+                m_feed3RefreshCombo->setCurrentText(settings.value("Feeds/feed3Refresh", "30 Minutes").toString());
+                
+                m_dxClusterCombo->setCurrentText(settings.value("Feeds/dxClusterEnabled", "Disabled").toString());
+                m_dxClusterEdit->setText(settings.value("Feeds/dxClusterHost", "dxc.nc7j.com:7373").toString());
+                
+                m_logfileEdit->setText(settings.value("Paths/Logfile", "qwain.adif").toString());
+                m_userDirectoryEdit->setText(settings.value("Paths/UserDirectory", "").toString());
+                m_systemLogfileEdit->setText(settings.value("Paths/SystemLog", "qwain_system.log").toString());
+                m_debugLogfileEdit->setText(settings.value("Paths/DebugLog", "qwain_debug.log").toString());
+                
+                m_scrollDirCombo1->setCurrentText(settings.value("UI/feed1Dir", "Down").toString());
+                m_scrollSpeedSlider1->setValue(settings.value("UI/feed1Speed", 5).toInt());
+                m_scrollDirCombo2->setCurrentText(settings.value("UI/feed2Dir", "Down").toString());
+                m_scrollSpeedSlider2->setValue(settings.value("UI/feed2Speed", 5).toInt());
+                m_scrollDirCombo3->setCurrentText(settings.value("UI/feed3Dir", "Down").toString());
+                m_scrollSpeedSlider3->setValue(settings.value("UI/feed3Speed", 5).toInt());
+                
+                m_statusScrollLimit->setValue(settings.value("UI/StatusScrollLimit", 50).toInt());
+                m_mapStyleCombo->setCurrentText(settings.value("UI/MapStyle", "Dark Map").toString());
+                
+                auto loadFontColor = [&](QFont &f, QColor &c, const QString &fkey, const QString &ckey, QFont defFont, QColor defColor) {
+                    f = qvariant_cast<QFont>(settings.value(fkey, defFont));
+                    c = qvariant_cast<QColor>(settings.value(ckey, defColor));
+                };
+                loadFontColor(m_clockFont, m_clockColor, "UI/clockFont", "UI/clockColor", QFont("Arial", 10), Qt::white);
+                loadFontColor(m_feed1Font, m_feed1Color, "UI/feed1Font", "UI/feed1Color", QFont("Arial", 10), Qt::white);
+                loadFontColor(m_feed2Font, m_feed2Color, "UI/feed2Font", "UI/feed2Color", QFont("Arial", 10), Qt::white);
+                loadFontColor(m_feed3Font, m_feed3Color, "UI/feed3Font", "UI/feed3Color", QFont("Arial", 10), Qt::white);
+                loadFontColor(m_callInfoFont, m_callInfoColor, "UI/callInfoFont", "UI/callInfoColor", QFont("Arial", 10), Qt::white);
+                loadFontColor(m_qsoListFont, m_qsoListColor, "UI/qsoListFont", "UI/qsoListColor", QFont("Arial", 10), Qt::white);
+
+                if (settings.contains("SkinColor")) {
+                    m_selectedColor = settings.value("SkinColor").toString();
+                    m_currentColorLabel->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(m_selectedColor));
+                }
+                
+                for(auto &cb : m_styleLabelRefreshers) cb();
+                
+                if (m_uiPreview) updateUIPreview();
+                applySettings();
+                QMessageBox::information(this, "Configuration Restored", "Configuration has been restored and applied.");
+            }
+        }
+    });
+
+    connect(browseConfigFileBtn, &QPushButton::clicked, this, [this](){
+        QString path = QFileInfo(m_configDirEdit->text()).absolutePath();
+        QString file = QFileDialog::getOpenFileName(this, tr("Select Configuration File"), path);
+        if (!file.isEmpty()) {
+            m_configDirEdit->setText(file);
+        }
+    });
+    
+    layout->addLayout(topLayout);
+    
+    QFrame *line1 = new QFrame; line1->setFrameShape(QFrame::HLine); line1->setFrameShadow(QFrame::Sunken);
+    layout->addWidget(line1);
+    
+    QFormLayout *qrzCredForm = new QFormLayout;
+    m_qrzUserEdit = new QLineEdit(settings.value("Credentials/username", "").toString());
+    m_qrzPassEdit = new QLineEdit(settings.value("Credentials/password", "").toString());
+    m_qrzPassEdit->setEchoMode(QLineEdit::Password);
+    qrzCredForm->addRow(tr("QRZ Username:"), m_qrzUserEdit);
+    qrzCredForm->addRow(tr("QRZ Password:"), m_qrzPassEdit);
+    layout->addLayout(qrzCredForm);
+    
+    QHBoxLayout *qrzLayout = new QHBoxLayout;
+    m_qrzApiKeyEdit = new QLineEdit(settings.value("Credentials/qrzApiKey", "").toString());
+    QPushButton *qrzTestBtn = new QPushButton(tr("Test Connection..."));
+    qrzTestBtn->setAutoDefault(false);
+    qrzLayout->addWidget(new QLabel(tr("QRZ API Key:")));
+    qrzLayout->addWidget(m_qrzApiKeyEdit);
+    qrzLayout->addWidget(qrzTestBtn);
+    layout->addLayout(qrzLayout);
+    connect(qrzTestBtn, &QPushButton::clicked, this, &ConfigDialog::testQrzLogin);
+    
+    QFrame *line2 = new QFrame; line2->setFrameShape(QFrame::HLine); line2->setFrameShadow(QFrame::Sunken);
+    layout->addWidget(line2);
+    
+    QHBoxLayout *lotwLayout = new QHBoxLayout;
+    m_lotwUserEdit = new QLineEdit(settings.value("Credentials/lotwUser", "").toString());
+    m_lotwPassEdit = new QLineEdit(settings.value("Credentials/lotwPass", "").toString());
+    m_lotwPassEdit->setEchoMode(QLineEdit::Password);
+    QPushButton *lotwTestBtn = new QPushButton(tr("Test"));
+    lotwTestBtn->setAutoDefault(false);
+    lotwLayout->addWidget(new QLabel(tr("LoTW:")));
+    lotwLayout->addWidget(new QLabel(tr("Username:")));
+    lotwLayout->addWidget(m_lotwUserEdit);
+    lotwLayout->addWidget(new QLabel(tr("Password:")));
+    lotwLayout->addWidget(m_lotwPassEdit);
+    lotwLayout->addWidget(lotwTestBtn);
+    layout->addLayout(lotwLayout);
+    
+    QFrame *line3 = new QFrame; line3->setFrameShape(QFrame::HLine); line3->setFrameShadow(QFrame::Sunken);
+    layout->addWidget(line3);
+    
+    QHBoxLayout *clublogLayout = new QHBoxLayout;
+    m_clublogEmailEdit = new QLineEdit(settings.value("Credentials/clublogEmail", "").toString());
+    m_clublogCallEdit = new QLineEdit(settings.value("Credentials/clublogCall", "").toString());
+    m_clublogPassEdit = new QLineEdit(settings.value("Credentials/clublogPass", "").toString());
+    m_clublogPassEdit->setEchoMode(QLineEdit::Password);
+    QPushButton *clublogTestBtn = new QPushButton(tr("test"));
+    clublogTestBtn->setAutoDefault(false);
+    clublogLayout->addWidget(new QLabel(tr("Clublog:")));
+    clublogLayout->addWidget(new QLabel(tr("E-Mail:")));
+    clublogLayout->addWidget(m_clublogEmailEdit);
+    clublogLayout->addWidget(new QLabel(tr("Call:")));
+    clublogLayout->addWidget(m_clublogCallEdit);
+    clublogLayout->addWidget(new QLabel(tr("Password:")));
+    clublogLayout->addWidget(m_clublogPassEdit);
+    clublogLayout->addWidget(clublogTestBtn);
+    layout->addLayout(clublogLayout);
+    
+    QFrame *line4 = new QFrame; line4->setFrameShape(QFrame::HLine); line4->setFrameShadow(QFrame::Sunken);
+    layout->addWidget(line4);
+    
+    QHBoxLayout *eqslLayout = new QHBoxLayout;
+    m_eqslUserEdit = new QLineEdit(settings.value("Credentials/eqslUser", "").toString());
+    m_eqslPassEdit = new QLineEdit(settings.value("Credentials/eqslPass", "").toString());
+    m_eqslPassEdit->setEchoMode(QLineEdit::Password);
+    QPushButton *eqslTestBtn = new QPushButton(tr("Test"));
+    eqslTestBtn->setAutoDefault(false);
+    eqslLayout->addWidget(new QLabel(tr("eQSL.cc:")));
+    eqslLayout->addWidget(new QLabel(tr("User:")));
+    eqslLayout->addWidget(m_eqslUserEdit);
+    eqslLayout->addWidget(new QLabel(tr("Password:")));
+    eqslLayout->addWidget(m_eqslPassEdit);
+    eqslLayout->addWidget(eqslTestBtn);
+    layout->addLayout(eqslLayout);
+    
+    layout->addStretch();
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::createFeedsPage()
+{
+    QWidget *page = new QWidget;
+    QFormLayout *layout = new QFormLayout(page);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    auto fillIntervals = [](QComboBox *cb, const QString &val) {
+        cb->addItems({"6 Hours", "12 Hours", "24 Hours", "Never"});
+        cb->setCurrentText(val);
+    };
+
+    m_feed1Check = new QCheckBox(tr("Enable Left Feed (News Ticker)"));
+    m_feed1Check->setChecked(settings.value("Feeds/feed1Enabled", true).toBool());
+    m_feed1UrlEdit = new QLineEdit(settings.value("Feeds/feed1Url", "https://dxnews.com/rss.xml").toString());
+    QPushButton *f1Def = new QPushButton("Default");
+    f1Def->setAutoDefault(false);
+    connect(f1Def, &QPushButton::clicked, this, [this]() { m_feed1UrlEdit->setText("https://dxnews.com/rss.xml"); });
+    QHBoxLayout *f1UrlLayout = new QHBoxLayout; f1UrlLayout->addWidget(m_feed1UrlEdit); f1UrlLayout->addWidget(f1Def);
+    m_feed1RefreshCombo = new QComboBox;
+    fillIntervals(m_feed1RefreshCombo, settings.value("Feeds/feed1Refresh", "12 Hours").toString());
+    QPushButton *f1Btn = new QPushButton("Refresh Now");
+    f1Btn->setAutoDefault(false);
+    connect(f1Btn, &QPushButton::clicked, this, &ConfigDialog::feed1RefreshNow);
+    QHBoxLayout *f1L = new QHBoxLayout; f1L->addWidget(m_feed1RefreshCombo); f1L->addWidget(f1Btn);
+    layout->addRow(m_feed1Check);
+    layout->addRow(tr("Left Feed URL:"), f1UrlLayout);
+    layout->addRow(tr("Left Feed Refresh:"), f1L);
+    
+    m_feed3Check = new QCheckBox(tr("Enable Center Feed (Custom)"));
+    m_feed3Check->setChecked(settings.value("Feeds/feed3Enabled", false).toBool());
+    m_feed3UrlEdit = new QLineEdit(settings.value("Feeds/feed3Url", "").toString());
+    QPushButton *f3Def = new QPushButton("Default");
+    f3Def->setAutoDefault(false);
+    connect(f3Def, &QPushButton::clicked, this, [this]() { m_feed3UrlEdit->setText(""); });
+    QHBoxLayout *f3UrlLayout = new QHBoxLayout; f3UrlLayout->addWidget(m_feed3UrlEdit); f3UrlLayout->addWidget(f3Def);
+    m_feed3RefreshCombo = new QComboBox;
+    fillIntervals(m_feed3RefreshCombo, settings.value("Feeds/feed3Refresh", "12 Hours").toString());
+    QPushButton *f3Btn = new QPushButton("Refresh Now");
+    f3Btn->setAutoDefault(false);
+    connect(f3Btn, &QPushButton::clicked, this, &ConfigDialog::feed3RefreshNow);
+    QHBoxLayout *f3L = new QHBoxLayout; f3L->addWidget(m_feed3RefreshCombo); f3L->addWidget(f3Btn);
+    layout->addRow(m_feed3Check);
+    layout->addRow(tr("Center Feed URL:"), f3UrlLayout);
+    layout->addRow(tr("Center Feed Refresh:"), f3L);
+
+    m_feed2Check = new QCheckBox(tr("Enable Right Feed (HR Propagation)"));
+    m_feed2Check->setChecked(settings.value("Feeds/feed2Enabled", false).toBool());
+    m_feed2UrlEdit = new QLineEdit(settings.value("Feeds/feed2Url", "https://www.hamqsl.com/solar101pic.php").toString());
+    QPushButton *f2Def = new QPushButton("Default");
+    f2Def->setAutoDefault(false);
+    connect(f2Def, &QPushButton::clicked, this, [this]() { m_feed2UrlEdit->setText("https://www.hamqsl.com/solar101pic.php"); });
+    QHBoxLayout *f2UrlLayout = new QHBoxLayout; f2UrlLayout->addWidget(m_feed2UrlEdit); f2UrlLayout->addWidget(f2Def);
+    m_feed2RefreshCombo = new QComboBox;
+    fillIntervals(m_feed2RefreshCombo, settings.value("Feeds/feed2Refresh", "12 Hours").toString());
+    QPushButton *f2Btn = new QPushButton("Refresh Now");
+    f2Btn->setAutoDefault(false);
+    connect(f2Btn, &QPushButton::clicked, this, &ConfigDialog::feed2RefreshNow);
+    QHBoxLayout *f2L = new QHBoxLayout; f2L->addWidget(m_feed2RefreshCombo); f2L->addWidget(f2Btn);
+    layout->addRow(m_feed2Check);
+    layout->addRow(tr("Right Feed URL:"), f2UrlLayout);
+    layout->addRow(tr("Right Feed Refresh:"), f2L);
+    
+    QFrame *line2 = new QFrame;
+    line2->setFrameShape(QFrame::HLine);
+    line2->setFrameShadow(QFrame::Sunken);
+    layout->addRow(line2);
+    
+    QWidget *dxClusterWidget = new QWidget;
+    QVBoxLayout *dxLayout = new QVBoxLayout(dxClusterWidget);
+    dxLayout->setContentsMargins(0, 0, 0, 0);
+    
+    QHBoxLayout *svrLayout = new QHBoxLayout;
+    svrLayout->addWidget(new QLabel("DX Cluster Server:"));
+    m_dxClusterEdit = new QLineEdit;
+    m_dxClusterEdit->setText(settings.value("Feeds/dxClusterServer", "dx.ve7cc.net:23").toString());
+    svrLayout->addWidget(m_dxClusterEdit);
+    
+    QPushButton *testDxBtn = new QPushButton("Test Connection");
+    testDxBtn->setAutoDefault(false);
+    svrLayout->addWidget(testDxBtn);
+    
+    connect(testDxBtn, &QPushButton::clicked, this, [this, testDxBtn]() {
+        testDxBtn->setStyleSheet(""); // reset color
+        QString serverConfig = m_dxClusterEdit->text();
+        if (serverConfig.isEmpty()) return;
+        
+        QString host;
+        int port = 7373;
+        if (serverConfig.contains(":")) {
+            QStringList parts = serverConfig.split(":");
+            host = parts[0];
+            port = parts[1].toInt();
+        } else {
+            host = serverConfig;
+        }
+        
+        QTcpSocket *socket = new QTcpSocket(this);
+        QString *trace = new QString;
+        *trace += "Connecting to " + host + " on port " + QString::number(port) + "...\n";
+        
+        connect(socket, &QTcpSocket::stateChanged, this, [trace](QAbstractSocket::SocketState state) {
+            switch(state) {
+                case QAbstractSocket::HostLookupState: *trace += "Looking up host...\n"; break;
+                case QAbstractSocket::ConnectingState: *trace += "Connecting...\n"; break;
+                case QAbstractSocket::ConnectedState: *trace += "Connected!\n"; break;
+                case QAbstractSocket::ClosingState: *trace += "Closing connection...\n"; break;
+                case QAbstractSocket::UnconnectedState: *trace += "Unconnected.\n"; break;
+                default: break;
+            }
+        });
+        
+        connect(socket, &QTcpSocket::connected, this, [socket, testDxBtn, trace]() {
+            testDxBtn->setStyleSheet("background-color: green; color: white;");
+            *trace += "Test connection successful!\n";
+            QMessageBox::information(nullptr, "Connection Test", *trace);
+            socket->disconnectFromHost();
+            socket->deleteLater();
+            delete trace;
+        });
+        
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+        connect(socket, &QTcpSocket::errorOccurred, this, [this, socket, testDxBtn, trace](QAbstractSocket::SocketError err) {
+#else
+        connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error), this, [this, socket, testDxBtn, trace](QAbstractSocket::SocketError err) {
+#endif
+            testDxBtn->setStyleSheet("background-color: red; color: white;");
+            *trace += "Error: " + socket->errorString() + "\n";
+            QMessageBox::critical(this, "Connection Error", *trace);
+            socket->deleteLater();
+            delete trace;
+        });
+        
+        socket->connectToHost(host, port);
+    });
+    
+    m_dxClusterCombo = new QComboBox;
+    QStringList savedServers = settings.value("Feeds/dxClusterList").toStringList();
+    if (savedServers.isEmpty()) {
+        savedServers << "dx.ve7cc.net:23 - VE7CC, British Columbia, Canada"
+                     << "dxc.nc7j.com:7373 - NC7J, Utah, USA"
+                     << "dxc.w9zrx.net:7373 - W9ZRX, Wisconsin, USA"
+                     << "k3lr.com:7373 - K3LR, Pennsylvania, USA"
+                     << "w3lpl.net:7373 - W3LPL, Maryland, USA"
+                     << "dxc.pi4cc.nl:8000 - PI4CC, Netherlands"
+                     << "gb7mbc.spoo.org:8000 - GB7MBC, United Kingdom"
+                     << "cluster.dl9gtb.de:8000 - DL9GTB, Germany"
+                     << "cluster.f5mzn.org:8000 - F5MZN, France"
+                     << "cp2.net:7373 - CP2, South Africa"
+                     << "cq.ndxc.org:7373 - NDXC, USA"
+                     << "dxc.aa4vv.net:7373 - AA4VV, North Carolina, USA"
+                     << "dxc.hb9hlm.ch:9000 - HB9HLM, Switzerland"
+                     << "dxc.k0xrc.net:7373 - K0XRC, USA"
+                     << "dxc.k1ttt.net:7373 - K1TTT, Massachusetts, USA"
+                     << "dxc.k8sn.com:7373 - K8SN, Michigan, USA"
+                     << "dxc.kx4i.com:7373 - KX4I, Georgia, USA"
+                     << "dxc.n0hr.com:7373 - N0HR, Iowa, USA"
+                     << "dxc.n4djt.com:7373 - N4DJT, Virginia, USA"
+                     << "dxc.n4xh.net:7373 - N4XH, North Carolina, USA"
+                     << "dxc.n9nwo.com:7373 - N9NWO, Indiana, USA"
+                     << "dxc.w1fm.org:7373 - W1FM, USA"
+                     << "gb7tf.spoo.org:8000 - GB7TF, United Kingdom"
+                     << "gb7ujs.spoo.org:8000 - GB7UJS, United Kingdom"
+                     << "ha6dx.ng3k.com:7373 - HA6DX, Hungary"
+                     << "ik5pwj.dyndns.org:8000 - IK5PWJ, Italy"
+                     << "k0gw.net:7373 - K0GW, USA"
+                     << "k1rgo.net:7373 - K1RGO, USA"
+                     << "lw8ar.no-ip.org:8000 - LW8AR, Argentina"
+                     << "n1kdo.net:7373 - N1KDO, USA"
+                     << "nb.ncdxc.org:7373 - NCDXC, California, USA"
+                     << "sk0hb.se:8000 - SK0HB, Sweden"
+                     << "sk3w.se:8000 - SK3W, Sweden"
+                     << "wa9tt.org:7373 - WA9TT, USA"
+                     << "yf1ar.net:8000 - YF1AR, Indonesia"
+                     << "dxc.ncdxf.org:7373 - NCDXF, Northern California, USA"
+                     << "dxc.ac5aa.com:7373 - AC5AA, Texas, USA"
+                     << "dxc.ai9t.com:7373 - AI9T, Florida, USA"
+                     << "dxc.k1ea.net:7373 - K1EA, Massachusetts, USA"
+                     << "dxc.k1xx.com:7373 - K1XX, Hampshire, UK"
+                     << "dxc.n2jg.com:7373 - N2JG, New Jersey, USA"
+                     << "dxc.n8kxa.net:7373 - N8KXA, Ohio, USA"
+                     << "dxc.w4doc.com:7373 - W4DOC, Georgia, USA"
+                     << "dxc.w8wtd.com:7373 - W8WTD, Ohio, USA"
+                     << "dxc.w9dxcc.com:7373 - W9DXCC, Illinois, USA"
+                     << "pe1pqf.com:8000 - PE1PQF, Netherlands";
+    }
+    m_dxClusterCombo->addItems(savedServers);
+    connect(m_dxClusterCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
+        QString s = m_dxClusterCombo->itemText(index);
+        int idx = s.indexOf(" - ");
+        if (idx > 0) s = s.left(idx);
+        m_dxClusterEdit->setText(s);
+    });
+
+    dxLayout->addLayout(svrLayout);
+    dxLayout->addWidget(new QLabel("Pre-defined DX Clusters:"));
+    dxLayout->addWidget(m_dxClusterCombo);
+    
+    layout->addRow(dxClusterWidget);
+
+    QFrame *line = new QFrame;
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Sunken);
+    layout->addRow(line);
+
+    auto createScrollConfig = [this](const QString& label, int feedNumber, QFormLayout* l, QComboBox*& dirCombo, QSlider*& speedSlider, QSettings& settings) {
+        dirCombo = new QComboBox;
+        dirCombo->addItem("Up", "up");
+        dirCombo->addItem("Down", "down");
+        dirCombo->addItem("Marquee Left", "left");
+        dirCombo->addItem("Marquee Right", "right");
+        int idx = dirCombo->findData(settings.value(QString("Feeds/feed%1ScrollDir").arg(feedNumber), "up").toString());
+        if (idx >= 0) dirCombo->setCurrentIndex(idx);
+
+        speedSlider = new QSlider(Qt::Horizontal);
+        speedSlider->setRange(0, 100);
+        speedSlider->setValue(settings.value(QString("Feeds/feed%1ScrollSpeed").arg(feedNumber), 50).toInt());
+        
+        connect(speedSlider, &QSlider::valueChanged, this, [feedNumber](int value) {
+            QSettings s(QCoreApplication::organizationName(), "Qwain");
+            s.setValue(QString("Feeds/feed%1ScrollSpeed").arg(feedNumber), value);
+        });
+        connect(dirCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [feedNumber, dirCombo](int) {
+            QSettings s(QCoreApplication::organizationName(), "Qwain");
+            s.setValue(QString("Feeds/feed%1ScrollDir").arg(feedNumber), dirCombo->currentData().toString());
+        });
+
+        l->addRow(QString("%1 Scroll Dir:").arg(label), dirCombo);
+        l->addRow(QString("%1 Scroll Speed:").arg(label), speedSlider);
+    };
+
+    createScrollConfig("Left Feed", 1, layout, m_scrollDirCombo1, m_scrollSpeedSlider1, settings);
+    createScrollConfig("Center Feed", 3, layout, m_scrollDirCombo3, m_scrollSpeedSlider3, settings);
+    createScrollConfig("Right Feed", 2, layout, m_scrollDirCombo2, m_scrollSpeedSlider2, settings);
+
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::createLoggingPage()
+{
+    QWidget *page = new QWidget;
+    QFormLayout *layout = new QFormLayout(page);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    settings.beginGroup("Files");
+    QString defUserDir = settings.value("userDirectory", QDir::homePath()).toString();
+    QString defLog = settings.value("logfile", "").toString();
+    QString defSysLog = settings.value("systemLogfile", "").toString();
+    QString defDebugLog = settings.value("debugLogfile", "").toString();
+    settings.endGroup();
+    
+    if (defLog.isEmpty()) {
+        QDir dataDir(getAppDataDir());
+        if (!dataDir.exists()) dataDir.mkpath(".");
+        defLog = dataDir.filePath("Qwain_Active.adi");
+    }
+    
+    // User Directory
+    m_userDirectoryEdit = new QLineEdit(defUserDir);
+    QHBoxLayout *userDirLayout = new QHBoxLayout;
+    userDirLayout->addWidget(m_userDirectoryEdit);
+    QPushButton *btnUserDir = new QPushButton("Browse...");
+    connect(btnUserDir, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(this, tr("Select User Directory"), m_userDirectoryEdit->text());
+        if (!dir.isEmpty()) {
+            m_userDirectoryEdit->setText(dir);
+        }
+    });
+    userDirLayout->addWidget(btnUserDir);
+    layout->addRow("User Directory:", userDirLayout);
+    
+    // Active ADIF file
+    m_logfileEdit = new QLineEdit(defLog);
+    QHBoxLayout *browseLayout = new QHBoxLayout;
+    browseLayout->addWidget(m_logfileEdit);
+    
+    QPushButton *browseBtn = new QPushButton("Browse...");
+    connect(browseBtn, &QPushButton::clicked, this, [this]() {
+        QString defDir = m_userDirectoryEdit->text();
+        if (defDir.isEmpty()) defDir = QDir::homePath();
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Select ADIF File"), defDir, tr("Log Files (*.adi *.adif *.txt *.csv *.log);;ADIF Files (*.adi *.adif);;All Files (*)"));
+        if (!fileName.isEmpty()) {
+            m_logfileEdit->setText(fileName);
+        }
+    });
+    
+    QPushButton *testBtn = new QPushButton("Test Settings");
+    connect(testBtn, &QPushButton::clicked, this, [this]() {
+        QString path = m_logfileEdit->text().trimmed();
+        if (path.isEmpty() || !QFile::exists(path)) {
+            QMessageBox::warning(this, "File Not Found", "The specified logfile does not exist.");
+            return;
+        }
+        
+        QDialog *previewDlg = new QDialog(this);
+        previewDlg->setWindowTitle("Logfile Preview");
+        previewDlg->resize(600, 400);
+        QVBoxLayout *dlgLayout = new QVBoxLayout(previewDlg);
+        QFileInfo fi(path);
+        QLabel *infoLbl = new QLabel(QString("<b>File:</b> %1<br/><b>Size:</b> %2 bytes").arg(fi.fileName()).arg(fi.size()));
+        dlgLayout->addWidget(infoLbl);
+        
+        QTextEdit *previewEdit = new QTextEdit;
+        previewEdit->setReadOnly(true);
+        QFile tFile(path);
+        if (tFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QTextStream in(&tFile);
+            int lineCount = 0;
+            while (!in.atEnd() && lineCount < 300) {
+                previewEdit->append(in.readLine());
+                lineCount++;
+            }
+            tFile.close();
+        }
+        dlgLayout->addWidget(previewEdit);
+        
+        QPushButton *closeBtn = new QPushButton("Close");
+        connect(closeBtn, &QPushButton::clicked, previewDlg, &QDialog::accept);
+        dlgLayout->addWidget(closeBtn);
+        
+        previewDlg->exec();
+        previewDlg->deleteLater();
+    });
+    
+    browseLayout->addWidget(browseBtn);
+    browseLayout->addWidget(testBtn);
+    
+    layout->addRow("Active ADIF File:", browseLayout);
+    
+    // System Logfile
+    m_systemLogfileEdit = new QLineEdit(defSysLog);
+    QHBoxLayout *sysLogLayout = new QHBoxLayout;
+    sysLogLayout->addWidget(m_systemLogfileEdit);
+    QPushButton *btnSysLog = new QPushButton("Browse...");
+    connect(btnSysLog, &QPushButton::clicked, this, [this]() {
+        QString defDir = m_userDirectoryEdit->text();
+        if (defDir.isEmpty()) defDir = QDir::homePath();
+        QString fileName = QFileDialog::getSaveFileName(this, tr("Select System Logfile"), defDir + "/system.log", tr("Log Files (*.log *.txt);;All Files (*)"));
+        if (!fileName.isEmpty()) {
+            m_systemLogfileEdit->setText(fileName);
+        }
+    });
+    sysLogLayout->addWidget(btnSysLog);
+    layout->addRow("System Logfile:", sysLogLayout);
+    
+    // Debug Logfile
+    m_debugLogfileEdit = new QLineEdit(defDebugLog);
+    QHBoxLayout *debugLogLayout = new QHBoxLayout;
+    debugLogLayout->addWidget(m_debugLogfileEdit);
+    QPushButton *btnDebugLog = new QPushButton("Browse...");
+    connect(btnDebugLog, &QPushButton::clicked, this, [this]() {
+        QString defDir = m_userDirectoryEdit->text();
+        if (defDir.isEmpty()) defDir = QDir::homePath();
+        QString fileName = QFileDialog::getSaveFileName(this, tr("Select Debug Logfile"), defDir + "/debug.log", tr("Log Files (*.log *.txt);;All Files (*)"));
+        if (!fileName.isEmpty()) {
+            m_debugLogfileEdit->setText(fileName);
+        }
+    });
+    debugLogLayout->addWidget(btnDebugLog);
+    layout->addRow("Debug Logfile:", debugLogLayout);
+    
+    QHBoxLayout *logOpsLayout = new QHBoxLayout;
+    QPushButton *prepBtn = new QPushButton("Prepare/Repair Logfile");
+    connect(prepBtn, &QPushButton::clicked, this, &ConfigDialog::prepNewLogfile);
+    logOpsLayout->addWidget(prepBtn);
+    
+    QPushButton *forceSyncBtn = new QPushButton("FORCE SYNC");
+    connect(forceSyncBtn, &QPushButton::clicked, this, &ConfigDialog::forceSyncLogfile);
+    logOpsLayout->addWidget(forceSyncBtn);
+    
+    QPushButton *mailCheckBtn = new QPushButton("QSL by Mail Check");
+    connect(mailCheckBtn, &QPushButton::clicked, this, &ConfigDialog::startMailCheck);
+    logOpsLayout->addWidget(mailCheckBtn);
+    
+    layout->addRow("", logOpsLayout);
+    
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::createBackupPage()
+{
+    QWidget *page = new QWidget;
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    
+    QLabel *lbl = new QLabel("Backup and Restore your Log and Configuration Data.\nUse these tools periodically to protect your operating data.");
+    layout->addWidget(lbl);
+    layout->addSpacing(20);
+    
+    QPushButton *btnFull = new QPushButton("Backup (Full)");
+    connect(btnFull, &QPushButton::clicked, this, [this]() {
+        if (MainWindow *mainWnd = qobject_cast<MainWindow*>(parentWidget())) {
+            mainWnd->backupData(true);
+        }
+    });
+    
+    QPushButton *btnData = new QPushButton("Backup (Data Only)");
+    connect(btnData, &QPushButton::clicked, this, [this]() {
+        if (MainWindow *mainWnd = qobject_cast<MainWindow*>(parentWidget())) {
+            mainWnd->backupData(false);
+        }
+    });
+    
+    QPushButton *btnRestore = new QPushButton("Restore from Backup");
+    connect(btnRestore, &QPushButton::clicked, this, [this]() {
+        if (MainWindow *mainWnd = qobject_cast<MainWindow*>(parentWidget())) {
+            mainWnd->restoreData();
+        }
+    });
+    
+    layout->addWidget(btnFull);
+    layout->addWidget(btnData);
+    layout->addSpacing(20);
+    layout->addWidget(btnRestore);
+    layout->addStretch();
+    
+    m_pagesWidget->addWidget(page);
+}
+
+#include <QFontDialog>
+#include "styledialog.h"
+#include "styledialog.h"
+void ConfigDialog::createUIPage()
+{
+    QWidget *page = new QWidget;
+    QFormLayout *layout = new QFormLayout(page);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    
+    m_selectedColor = settings.value("SkinColor", "#221e1f").toString();
+    m_initialSelectedColor = m_selectedColor;
+    m_initialSelectedColor = m_selectedColor;
+    m_currentColorLabel = new QLabel(m_selectedColor);
+    
+    QHBoxLayout *colorLayout = new QHBoxLayout;
+    QPushButton *colorBtn = new QPushButton(tr("Choose Color..."));
+    connect(colorBtn, &QPushButton::clicked, this, &ConfigDialog::chooseSkinColor);
+    colorLayout->addWidget(m_currentColorLabel);
+    colorLayout->addWidget(colorBtn);
+    colorLayout->addStretch();
+    
+    m_mapStyleCombo = new QComboBox;
+    m_mapStyleCombo->addItem(tr("Satellite (Color)"));
+    m_mapStyleCombo->addItem(tr("Simplified (Black & White)"));
+    m_mapStyleCombo->setCurrentIndex(settings.value("MapStyle", 1).toInt());
+    
+    m_statusScrollLimit = new QSpinBox;
+    m_statusScrollLimit->setRange(10, 200);
+    m_statusScrollLimit->setValue(settings.value("UI/statusScrollLimit", 50).toInt());
+    
+    layout->addRow(tr("Skin Background Color:"), colorLayout);
+    layout->addRow(tr("County Map Style:"), m_mapStyleCombo);
+    layout->addRow(tr("Status Scrollback Lines:"), m_statusScrollLimit);
+    
+    auto addFontColor = [&](const QString &label, QFont &f, QColor &c, const QString &fkey, const QString &ckey,
+                            QFont defFont = QFont("Arial", 10), QColor defColor = QColor(Qt::white)) {
+        f = qvariant_cast<QFont>(settings.value(fkey, defFont));
+        c = qvariant_cast<QColor>(settings.value(ckey, defColor));
+        if (&f == &m_clockFont) { m_initialClockFont = f; m_initialClockColor = c; }
+        else if (&f == &m_feed1Font) { m_initialFeed1Font = f; m_initialFeed1Color = c; }
+        else if (&f == &m_feed2Font) { m_initialFeed2Font = f; m_initialFeed2Color = c; }
+        else if (&f == &m_feed3Font) { m_initialFeed3Font = f; m_initialFeed3Color = c; }
+        else if (&f == &m_callInfoFont) { m_initialCallInfoFont = f; m_initialCallInfoColor = c; }
+        else if (&f == &m_qsoListFont) { m_initialQsoListFont = f; m_initialQsoListColor = c; }
+        
+        QHBoxLayout *h = new QHBoxLayout;
+        QPushButton *btn = new QPushButton(tr("Change Style..."));
+        QLabel *lblPreview = new QLabel(tr("Sample Text"));
+        lblPreview->setFont(f);
+        lblPreview->setStyleSheet(QString("color: %1; background: #333; padding: 2px;").arg(c.name()));
+        
+        m_styleLabelRefreshers.push_back([&f, &c, lblPreview]() {
+            lblPreview->setFont(f);
+            lblPreview->setStyleSheet(QString("color: %1; background: #333; padding: 2px;").arg(c.name()));
+        });
+        
+        connect(btn, &QPushButton::clicked, this, [this, &f, &c, lblPreview]() {
+            StyleDialog sd(f, c, this);
+            if (sd.exec() == QDialog::Accepted) {
+                f = sd.selectedFont();
+                c = sd.selectedColor();
+                lblPreview->setFont(f);
+                lblPreview->setStyleSheet(QString("color: %1; background: #333; padding: 2px;").arg(c.name()));
+                updateUIPreview();
+            }
+        });
+        h->addWidget(lblPreview);
+        h->addWidget(btn);
+        h->addStretch();
+        layout->addRow(label, h);
+    };
+
+    addFontColor("Clock (UTC):", m_clockFont, m_clockColor, "UI/clockFont", "UI/clockColor");
+    addFontColor("Left Feed (News):", m_feed1Font, m_feed1Color, "UI/feed1Font", "UI/feed1Color");
+    addFontColor("Center Feed:", m_feed3Font, m_feed3Color, "UI/feed3Font", "UI/feed3Color");
+    addFontColor("Right Feed (News):", m_feed2Font, m_feed2Color, "UI/feed2Font", "UI/feed2Color");
+    addFontColor("Callsign Info:", m_callInfoFont, m_callInfoColor, "UI/callInfoFont", "UI/callInfoColor");
+    addFontColor("QSO History:", m_qsoListFont, m_qsoListColor, "UI/qsoListFont", "UI/qsoListColor");
+    
+    m_uiPreview = new QTextBrowser;
+    m_uiPreview->setOpenLinks(false);
+    m_uiPreview->setMinimumHeight(250);
+    connect(m_uiPreview, &QTextBrowser::anchorClicked, this, [this](const QUrl &url) {
+        QString action = url.toString().replace("#", "");
+        QFont *f = nullptr;
+        QColor *c = nullptr;
+        if (action == "clock") { f = &m_clockFont; c = &m_clockColor; }
+        else if (action == "feed1") { f = &m_feed1Font; c = &m_feed1Color; }
+        else if (action == "feed2") { f = &m_feed2Font; c = &m_feed2Color; }
+        else if (action == "feed3") { f = &m_feed3Font; c = &m_feed3Color; }
+        else if (action == "callInfo") { f = &m_callInfoFont; c = &m_callInfoColor; }
+        else if (action == "qsoList") { f = &m_qsoListFont; c = &m_qsoListColor; }
+        
+        if (f && c) {
+            StyleDialog sd(*f, *c, this);
+            if (sd.exec() == QDialog::Accepted) {
+                *f = sd.selectedFont();
+                *c = sd.selectedColor();
+                updateUIPreview();
+            }
+        }
+    });
+    
+    QHBoxLayout *navLayout = new QHBoxLayout;
+    QPushButton *btnLeft = new QPushButton("<");
+    btnLeft->setFixedWidth(30);
+    QPushButton *btnRight = new QPushButton(">");
+    btnRight->setFixedWidth(30);
+    QLabel *lblTitle = new QLabel("<b>Main Window Preview (Click text to edit style)</b>");
+    lblTitle->setAlignment(Qt::AlignCenter);
+    navLayout->addWidget(btnLeft);
+    navLayout->addWidget(lblTitle, 1);
+    navLayout->addWidget(btnRight);
+    
+    connect(btnLeft, &QPushButton::clicked, this, [this, lblTitle]() {
+        m_currentPreviewPane = (m_currentPreviewPane - 1 + 3) % 3;
+        lblTitle->setText(m_currentPreviewPane == 0 ? "<b>Main Window Preview (Click text to edit style)</b>" : (m_currentPreviewPane == 1 ? "<b>Print QSL Preview</b>" : "<b>Design QSLs Preview</b>"));
+        updateUIPreview();
+    });
+    connect(btnRight, &QPushButton::clicked, this, [this, lblTitle]() {
+        m_currentPreviewPane = (m_currentPreviewPane + 1) % 3;
+        lblTitle->setText(m_currentPreviewPane == 0 ? "<b>Main Window Preview (Click text to edit style)</b>" : (m_currentPreviewPane == 1 ? "<b>Print QSL Preview</b>" : "<b>Design QSLs Preview</b>"));
+        updateUIPreview();
+    });
+    
+    layout->addRow(navLayout);
+    layout->addRow(m_uiPreview);
+    
+    updateUIPreview();
+    
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::updateUIPreview()
+{
+    if (!m_uiPreview) return;
+    
+    if (m_currentPreviewPane == 1) {
+        // Print QSL Preview mock
+        QString techStyle = "font-family: 'Courier New'; font-size: 11pt; font-weight: bold;";
+        QString html = "<div style='background-color: #fdfdfd; padding: 10px; color: #333;'>";
+        html += "<table width='100%' border='1' cellspacing='0' cellpadding='5' style='border-collapse: collapse;'>";
+        html += "<tr style='background-color: #e0e0e0; " + techStyle + "'><th>Callsign</th><th>Date</th><th>Band</th></tr>";
+        html += "<tr style='" + techStyle + "'><td align='center'>W4DJF</td><td align='center'>2026-06-27</td><td align='center'>20m</td></tr>";
+        html += "</table>";
+        html += "</div>";
+        m_uiPreview->setHtml(html);
+        return;
+    } else if (m_currentPreviewPane == 2) {
+        // Design QSLs Preview mock
+        QString html = "<div style='background-color: #444; padding: 20px; text-align: center; color: white;'>";
+        html += "<h3>Design QSLs (WYSIWYG Editor)</h3>";
+        html += "<p>Fonts and colors for QSL Cards are customized per-element inside the WYSIWYG Designer.</p>";
+        html += "<div style='background-color: white; color: black; padding: 20px; border: 2px solid #888; width: 80%; margin: 0 auto; text-align: left;'>";
+        html += "<h2 style='color: navy; border: 1px dashed gray; display: inline-block; padding: 5px;'>W4DJF</h2><br><br>";
+        html += "<div style='border: 1px dashed gray; padding: 5px; margin-top: 10px; width: 60%;'>Confirming QSO with ...</div>";
+        html += "</div></div>";
+        m_uiPreview->setHtml(html);
+        return;
+    }
+
+    QString html = QString("<div style='background-color: %1; padding: 10px;'>").arg(m_selectedColor);
+    
+    // Top bar (Clock)
+    QString clockStyle = QString("font-family: '%1'; font-size: %2pt; font-weight: %3; color: %4;")
+                         .arg(m_clockFont.family()).arg(m_clockFont.pointSize())
+                         .arg(m_clockFont.weight() * 8).arg(m_clockColor.name());
+    html += QString("<div align='center' style='margin-bottom: 10px;'><a href='#clock' style='text-decoration:none; %1'>22:15:30 UTC<br>Jun 27, 2026</a></div>").arg(clockStyle);
+    
+    // Left side (Feeds)
+    QString feed1Style = QString("font-family: '%1'; font-size: %2pt; font-weight: %3; color: %4;")
+                         .arg(m_feed1Font.family()).arg(m_feed1Font.pointSize())
+                         .arg(m_feed1Font.weight() * 8).arg(m_feed1Color.name());
+    QString feed2Style = QString("font-family: '%1'; font-size: %2pt; font-weight: %3; color: %4;")
+                         .arg(m_feed2Font.family()).arg(m_feed2Font.pointSize())
+                         .arg(m_feed2Font.weight() * 8).arg(m_feed2Color.name());
+    QString feed3Style = QString("font-family: '%1'; font-size: %2pt; font-weight: %3; color: %4;")
+                         .arg(m_feed3Font.family()).arg(m_feed3Font.pointSize())
+                         .arg(m_feed3Font.weight() * 8).arg(m_feed3Color.name());
+                         
+    html += "<table width='100%' border='0' cellspacing='5'><tr>";
+    html += QString("<td width='33%' valign='top'><a href='#feed1' style='text-decoration:none; %1'>[Left Feed News Item]</a></td>").arg(feed1Style);
+    html += QString("<td width='33%' valign='top'><a href='#feed3' style='text-decoration:none; %1'>[Center Feed Item]</a></td>").arg(feed3Style);
+    html += QString("<td width='33%' valign='top'><a href='#feed2' style='text-decoration:none; %1'>[Right Feed News Item]</a></td>").arg(feed2Style);
+    html += "</tr></table><hr style='color: #444;'>";
+    
+    // W4DJF Lookup info
+    QString callInfoStyle = QString("font-family: '%1'; font-size: %2pt; font-weight: %3; color: %4;")
+                                .arg(m_callInfoFont.family()).arg(m_callInfoFont.pointSize())
+                                .arg(m_callInfoFont.weight() * 8).arg(m_callInfoColor.name());
+    QString qsoListStyle = QString("font-family: '%1'; font-size: %2pt; font-weight: %3; color: %4;")
+                                .arg(m_qsoListFont.family()).arg(m_qsoListFont.pointSize())
+                                .arg(m_qsoListFont.weight() * 8).arg(m_qsoListColor.name());
+                                
+    html += "<table width='100%' border='0' cellspacing='10'><tr><td valign='top' width='60%'>";
+    html += QString("<a href='#callInfo' style='text-decoration:none; %1'>")
+            .arg(callInfoStyle);
+    html += "<h2>W4DJF</h2><table border='0' cellspacing='0' cellpadding='2'>";
+    html += "<tr><td align='right'><b>Name:</b></td><td align='left'>Donald J Fox</td></tr>";
+    html += "<tr><td align='right'><b>Address:</b></td><td align='left'>238 Graves Hollow Rd</td></tr>";
+    html += "<tr><td align='right'><b>City:</b></td><td align='left'>Maynardville, TN 37807</td></tr>";
+    html += "<tr><td align='right'><b>Country:</b></td><td align='left'>USA</td></tr>";
+    html += "<tr><td align='right'><b>Grid:</b></td><td align='left'>EM86bg</td></tr>";
+    html += "<tr><td align='right'><b>County:</b></td><td align='left'>Union</td></tr>";
+    html += "</table>";
+    html += "</a></td><td valign='top' width='40%'>";
+    
+    html += "<h3 align='center' style='color:orange; margin-top:0px;'>Past Contacts</h3>";
+    html += QString("<a href='#qsoList' style='text-decoration:none; %1'>").arg(qsoListStyle);
+    html += "<table width='100%' style='border-collapse: collapse;'>";
+    html += "<tr><th align='center'>Date</th><th align='center'>Time</th><th align='center'>Band</th><th align='center'>Mode</th></tr>";
+    html += QString("<tr style='color:%1;'><td align='center'>01/15/2026</td><td align='center'>14:00</td><td align='center'>20M</td><td align='center'>SSB</td></tr>").arg(m_qsoListColor.name());
+    html += QString("<tr style='color:%1;'><td align='center'>03/22/2026</td><td align='center'>09:30</td><td align='center'>40M</td><td align='center'>FT8</td></tr>").arg(m_qsoListColor.name());
+    html += "</table></a>";
+    
+    html += "</td></tr></table>";
+    html += "</div>";
+    
+    m_uiPreview->setHtml(html);
+}
+
+#include <QInputDialog>
+#include <QProcess>
+#include <QProgressDialog>
+#include <QMessageBox>
+
+
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QEventLoop>
+#include <QTimer>
+#include <QRegularExpression>
+#include <QPrinter>
+#include <QPainter>
+#include <QPageSize>
+#include <QDateTime>
+#include <QLocale>
+
+static QString getPrinterName(const QString &target) {
+    if (target.isEmpty()) return "";
+    
+    // If target doesn't look like an IP or URI, it is likely a CUPS system queue.
+    // Skip HTTP probing to save 5 seconds of timeouts.
+    if (!target.contains(".") && !target.contains("://")) {
+        return target;
+    }
+    
+    QString urlStr = target;
+    if (!target.contains("://")) {
+        urlStr = QString("http://%1/").arg(target);
+    } else {
+        // If it's a URI, let's just extract the host for HTTP probing
+        QUrl u(target);
+        if (!u.host().isEmpty()) {
+             urlStr = QString("http://%1/").arg(u.host());
+        }
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request;
+    request.setUrl(QUrl(urlStr));
+    QNetworkReply *reply = manager.get(request);
+    QEventLoop loop;
+    QTimer timer;
+    timer.setInterval(2500);
+    timer.setSingleShot(true);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    timer.start();
+    loop.exec();
+    
+    QString titleText = "";
+    if (reply->isFinished() && reply->error() == QNetworkReply::NoError) {
+        QString html = reply->readAll();
+        QRegularExpression re("<title[^>]*>(.*?)</title>", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatch match = re.match(html);
+        if (match.hasMatch()) {
+            titleText = match.captured(1).trimmed();
+        }
+    }
+    reply->deleteLater();
+    
+    if (titleText.isEmpty()) {
+        QString hostFor631 = target;
+        if (target.contains("://")) {
+            hostFor631 = QUrl(target).host();
+            if (hostFor631.isEmpty()) hostFor631 = target;
+        }
+        request.setUrl(QUrl(QString("http://%1:631/").arg(hostFor631)));
+        reply = manager.get(request);
+        timer.start();
+        loop.exec();
+        if (reply->isFinished() && reply->error() == QNetworkReply::NoError) {
+            QString html = reply->readAll();
+            QRegularExpression re("<title[^>]*>(.*?)</title>", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatch match = re.match(html);
+            if (match.hasMatch()) {
+                titleText = match.captured(1).trimmed();
+            }
+        }
+        reply->deleteLater();
+    }
+    
+    if (titleText.isEmpty() || titleText.contains("400 Bad") || titleText.contains("404 Not") || titleText.contains("Error")) {
+        return target; // fallback to IP or URI
+    }
+    // Clean up typical fluff
+    titleText.replace("Web", "", Qt::CaseInsensitive);
+    titleText.replace("Server", "", Qt::CaseInsensitive);
+    titleText = titleText.replace(QRegularExpression("\\s+"), " ").trimmed();
+    return target + " (" + titleText + ")";
+}
+
+void ConfigDialog::createStationPage()
+{
+    QWidget *page = new QWidget;
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    
+    QGridLayout *grid = new QGridLayout;
+    layout->addLayout(grid);
+    
+    // Helper to create a list block
+    auto createListBlock = [this](QVBoxLayout *vbox, const QString &title, QListWidget *&listWidget, const QStringList &items, const QString &noun) {
+        vbox->addWidget(new QLabel(QString("<b>%1</b>").arg(title)));
+        listWidget = new QListWidget(this);
+        listWidget->addItems(items);
+        vbox->addWidget(listWidget);
+        
+        QHBoxLayout *btns = new QHBoxLayout;
+        QPushButton *addBtn = new QPushButton(QString("Add %1").arg(noun));
+        QPushButton *rmBtn = new QPushButton(QString("Remove %1").arg(noun));
+        btns->addWidget(addBtn);
+        btns->addWidget(rmBtn);
+        vbox->addLayout(btns);
+        
+        connect(addBtn, &QPushButton::clicked, this, [this, &listWidget, noun]() {
+            bool ok;
+            QString text = QInputDialog::getText(this, QString("Add %1").arg(noun), QString("%1:").arg(noun), QLineEdit::Normal, "", &ok);
+            if (ok && !text.isEmpty()) {
+                bool duplicate = false;
+                for (int i = 0; i < listWidget->count(); ++i) {
+                    if (listWidget->item(i)->text().compare(text, Qt::CaseInsensitive) == 0) {
+                        duplicate = true; break;
+                    }
+                }
+                if (duplicate) {
+                    QMessageBox::warning(this, "Duplicate", QString("A %1 with this value already exists.").arg(noun));
+                } else {
+                    listWidget->addItem(text);
+                }
+            }
+        });
+        connect(rmBtn, &QPushButton::clicked, this, [&listWidget]() {
+            QList<QListWidgetItem*> sel = listWidget->selectedItems();
+            if (!sel.isEmpty()) delete sel.first();
+        });
+    };
+
+    QVBoxLayout *radiosVbox = new QVBoxLayout;
+    createListBlock(radiosVbox, "Defined Radios", m_stationRadios, settings.value("Station/Radios").toStringList(), "Radio");
+    grid->addLayout(radiosVbox, 0, 0);
+
+    QVBoxLayout *antennasVbox = new QVBoxLayout;
+    createListBlock(antennasVbox, "Defined Antennas", m_stationAntennas, settings.value("Station/Antennas").toStringList(), "Antenna");
+    grid->addLayout(antennasVbox, 0, 1);
+
+    // Migration logic for Bands & Checks
+    QStringList bandsList = settings.value("Station/Bands").toStringList();
+    QStringList checksList = settings.value("Station/Checks").toStringList();
+    if (!settings.contains("Station/Bands") && settings.contains("Station/CheckboxNames")) {
+        QStringList oldNames = settings.value("Station/CheckboxNames").toStringList();
+        for (const QString &n : oldNames) {
+            QString ln = n.toLower();
+            if (ln == "pse" || ln == "tnx") {
+                checksList << n;
+            } else {
+                bandsList << n;
+            }
+        }
+    }
+
+    QVBoxLayout *bandsVbox = new QVBoxLayout;
+    createListBlock(bandsVbox, "Defined Bands", m_stationBands, bandsList, "Band");
+    grid->addLayout(bandsVbox, 1, 0);
+
+    QVBoxLayout *checksVbox = new QVBoxLayout;
+    createListBlock(checksVbox, "Defined Checks", m_stationChecks, checksList, "Check");
+    grid->addLayout(checksVbox, 1, 1);
+
+    QStringList adifTags = settings.value("Station/AdifTags").toStringList();
+    if (adifTags.isEmpty()) {
+        adifTags << "ADDRESS" << "AGE" << "A_INDEX" << "ANT_AZ" << "ANT_EL" << "ANT_PATH" << "ARRL_SECTION" << "BAND" << "BAND_RX" << "CALL" << "CHECK" << "CLASS" << "CNTY" << "COMMENT" << "CONT" << "CONTACTED_OP" << "CONTEST_ID" << "COUNTRY" << "CQZ" << "CREDIT_SUBMITTED" << "CREDIT_GRANTED" << "CREDIT_RX" << "DARC_DOK" << "DISTANCE" << "DXCC" << "EMAIL" << "EQ_CALL" << "EQSL_QSLRDATE" << "EQSL_QSLSDATE" << "EQSL_QSL_RCVD" << "EQSL_QSL_SENT" << "FISTS" << "FISTS_CC" << "FORCE_INIT" << "FREQ" << "FREQ_RX" << "GRIDSQUARE" << "HEADING" << "IOTA" << "ITUZ" << "K_INDEX" << "LAT" << "LON" << "LOTW_QSLRDATE" << "LOTW_QSLSDATE" << "LOTW_QSL_RCVD" << "LOTW_QSL_SENT" << "MAX_BURSTS" << "MODE" << "MY_CITY" << "MY_CNTY" << "MY_COUNTRY" << "MY_CQ_ZONE" << "MY_DXCC" << "MY_FISTS" << "MY_GRIDSQUARE" << "MY_IOTA" << "MY_ITU_ZONE" << "MY_LAT" << "MY_LON" << "MY_NAME" << "MY_POSTAL_CODE" << "MY_RIG" << "MY_SIG" << "MY_SIG_INFO" << "MY_STATE" << "MY_STREET" << "MY_USACA_COUNTIES" << "MY_VUCC_GRIDS" << "NAME" << "NOTES" << "NR_BURSTS" << "NR_PINGS" << "OPERATOR" << "OWNER_CALLSIGN" << "PFX" << "POTA_REF" << "PRECEDENCE" << "PROP_MODE" << "PUBLIC_KEY" << "QRZCOM_QSO_UPLOAD_DATE" << "QRZCOM_QSO_UPLOAD_STATUS" << "QSLMSG" << "QSLRDATE" << "QSLSDATE" << "QSL_RCVD" << "QSL_RCVD_VIA" << "QSL_SENT" << "QSL_SENT_VIA" << "QSL_VIA" << "QSO_COMPLETE" << "QSO_DATE" << "QSO_DATE_OFF" << "QSO_RANDOM" << "REGION" << "RIG" << "RST_RCVD" << "RST_SENT" << "RX_PWR" << "SAT_MODE" << "SAT_NAME" << "SFI" << "SIG" << "SIG_INFO" << "SKCC" << "SOTA_REF" << "SRX" << "SRX_STRING" << "STATE" << "STATION_CALLSIGN" << "STX" << "STX_STRING" << "SUBMODE" << "SWL" << "TEN_TEN" << "TIME_OFF" << "TIME_ON" << "TX_PWR" << "UKSMG" << "USACA_COUNTIES" << "VUCC_GRIDS" << "WEB";
+    }
+    QVBoxLayout *adifVbox = new QVBoxLayout;
+    createListBlock(adifVbox, "Defined ADIF Tags", m_stationAdifTags, adifTags, "ADIF Tag");
+    grid->addLayout(adifVbox, 2, 0);
+
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::createAwardsPage()
+{
+    QWidget *page = new QWidget;
+    QGridLayout *overlayLayout = new QGridLayout(page);
+    overlayLayout->setContentsMargins(0, 0, 0, 0);
+
+    QWidget *contentWidget = new QWidget(page);
+    QVBoxLayout *layout = new QVBoxLayout(contentWidget);
+    
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+
+    QSplitter *mainSplitter = new QSplitter(Qt::Vertical, contentWidget);
+    
+    auto createHeader = [](const QString &title, QListWidget *lw) -> QWidget* {
+        QWidget *w = new QWidget;
+        QHBoxLayout *h = new QHBoxLayout(w);
+        h->setContentsMargins(0,0,0,0);
+        h->addWidget(new QLabel(title));
+        h->addStretch();
+        h->addWidget(new QLabel("Size:"));
+        QSlider *slider = new QSlider(Qt::Horizontal);
+        slider->setRange(16, 256);
+        slider->setValue(16);
+        slider->setFixedWidth(100);
+        QObject::connect(slider, &QSlider::valueChanged, lw, [lw](int v) {
+            lw->setViewMode(QListView::IconMode);
+            lw->setIconSize(QSize(v, v));
+            lw->setGridSize(QSize(v + 60, v + 80));
+            
+            // Adjust label wrap size
+            for (int i=0; i<lw->count(); ++i) {
+                QListWidgetItem *item = lw->item(i);
+                item->setSizeHint(QSize(v + 60, v + 80));
+            }
+        });
+        h->addWidget(slider);
+        return w;
+    };
+    
+    QWidget *topPane = new QWidget;
+    QVBoxLayout *topLayout = new QVBoxLayout(topPane);
+    topLayout->setContentsMargins(0,0,0,0);
+    m_stationAwards = new QListWidget(this);
+    topLayout->addWidget(createHeader("<b>Defined Awards</b>", m_stationAwards));
+    m_stationAwards->setViewMode(QListView::IconMode);
+    m_stationAwards->setWordWrap(true);
+    m_stationAwards->setTextElideMode(Qt::ElideNone);
+    m_stationAwards->setResizeMode(QListView::Adjust);
+    m_stationAwards->setIconSize(QSize(16, 16));
+    m_stationAwards->setMovement(QListView::Static);
+    m_stationAwards->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_stationAwards->setGridSize(QSize(76, 96));
+    m_stationAwards->setContextMenuPolicy(Qt::CustomContextMenu);
+    topLayout->addWidget(m_stationAwards);
+    
+    QWidget *midPane = new QWidget;
+    QVBoxLayout *midLayout = new QVBoxLayout(midPane);
+    midLayout->setContentsMargins(0,0,0,0);
+    m_stationCategories = new QListWidget(this);
+    midLayout->addWidget(createHeader("<b>Categories</b>", m_stationCategories));
+    m_stationCategories->setViewMode(QListView::IconMode);
+    m_stationCategories->setWordWrap(true);
+    m_stationCategories->setTextElideMode(Qt::ElideNone);
+    m_stationCategories->setResizeMode(QListView::Adjust);
+    m_stationCategories->setIconSize(QSize(16, 16));
+    m_stationCategories->setMovement(QListView::Static);
+    m_stationCategories->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_stationCategories->setGridSize(QSize(76, 96));
+    m_stationCategories->setContextMenuPolicy(Qt::CustomContextMenu);
+    midLayout->addWidget(m_stationCategories);
+    
+    QWidget *botPane = new QWidget;
+    QVBoxLayout *botLayout = new QVBoxLayout(botPane);
+    botLayout->setContentsMargins(0,0,0,0);
+    m_stationCategoryAwards = new QListWidget(this);
+    botLayout->addWidget(createHeader("<b>Awards in Selected Category</b>", m_stationCategoryAwards));
+    m_stationCategoryAwards->setViewMode(QListView::IconMode);
+    m_stationCategoryAwards->setWordWrap(true);
+    m_stationCategoryAwards->setTextElideMode(Qt::ElideNone);
+    m_stationCategoryAwards->setResizeMode(QListView::Adjust);
+    m_stationCategoryAwards->setIconSize(QSize(16, 16));
+    m_stationCategoryAwards->setMovement(QListView::Static);
+    m_stationCategoryAwards->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_stationCategoryAwards->setGridSize(QSize(76, 96));
+    m_stationCategoryAwards->setContextMenuPolicy(Qt::CustomContextMenu);
+    botLayout->addWidget(m_stationCategoryAwards);
+    
+    mainSplitter->addWidget(topPane);
+    mainSplitter->addWidget(midPane);
+    mainSplitter->addWidget(botPane);
+    layout->addWidget(mainSplitter, 1);
+    
+    // Wire up category clicking
+    connect(m_stationCategories, &QListWidget::itemClicked, this, [this](QListWidgetItem *catItem) {
+        m_stationCategoryAwards->clear();
+        if (!catItem) return;
+        QJsonObject catObj = QJsonDocument::fromJson(catItem->data(Qt::UserRole).toString().toUtf8()).object();
+        QString catName = catObj["name"].toString().trimmed();
+        
+        for (int i = 0; i < m_stationAwards->count(); ++i) {
+            QListWidgetItem *awItem = m_stationAwards->item(i);
+            QJsonObject awObj = QJsonDocument::fromJson(awItem->data(Qt::UserRole).toString().toUtf8()).object();
+            // Assuming categories are linked by the "category" field or "org" field. Let's use "category" field.
+            if (awObj["category"].toString().trimmed() == catName) {
+                QListWidgetItem *clone = new QListWidgetItem(awItem->text());
+                clone->setIcon(awItem->icon());
+                clone->setData(Qt::UserRole, awItem->data(Qt::UserRole));
+                clone->setData(Qt::UserRole + 1, QVariant::fromValue((void*)awItem));
+                clone->setSizeHint(awItem->sizeHint());
+                m_stationCategoryAwards->addItem(clone);
+            }
+        }
+    });
+    
+    QStringList savedAwards = settings.value("Station/Awards").toStringList();
+    if (savedAwards.isEmpty()) {
+        for (const auto &aw : defaultAwardsData) {
+            QJsonObject obj;
+            obj["org"] = aw.org; obj["name"] = aw.name; obj["desc"] = aw.desc; obj["req"] = aw.req; obj["track"] = aw.track; obj["url"] = aw.url;
+            savedAwards << QString(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        }
+    }
+    
+    auto loadItemIcon = [this](QListWidgetItem *item, const QJsonObject &obj) {
+        QString safeName = obj["name"].toString().replace(" ", "_").toLower();
+        safeName.remove(QRegularExpression("[^a-z0-9_]"));
+        safeName += ".png";
+        QString safeOrg = obj["org"].toString().replace(" ", "_").toLower();
+        safeOrg.remove(QRegularExpression("[^a-z0-9_]"));
+        safeOrg += ".png";
+        QString org = obj["org"].toString().toLower();
+        
+        QString userUrl = obj["url"].toString();
+
+        auto applyBtn = [this, item, obj](const QString &imgPath) {
+            if (item->listWidget()) item->listWidget()->setItemWidget(item, nullptr); // clear any custom widget if there was one
+            if (!imgPath.isEmpty() && QFile::exists(imgPath)) {
+                QPixmap p;
+                if(p.load(imgPath)) item->setIcon(QIcon(p));
+                else item->setIcon(QIcon("diploma.svg"));
+            } else {
+                item->setIcon(QIcon("diploma.svg"));
+            }
+            QString lblTxt;
+            if (obj["isCategory"].toBool(false)) {
+                lblTxt = obj["name"].toString();
+            } else {
+                QString org = obj["org"].toString().trimmed();
+                QString name = obj["name"].toString().trimmed();
+                if (!org.isEmpty() && !name.isEmpty()) lblTxt = org + " - " + name;
+                else lblTxt = org + name;
+            }
+            item->setText(lblTxt);
+            item->setTextAlignment(Qt::AlignCenter);
+        };
+
+        if (!userUrl.isEmpty()) {
+            if (QFile::exists(userUrl)) {
+                applyBtn(userUrl);
+            } else if (userUrl.startsWith("http")) {
+                if (QFile::exists(safeName)) {
+                    applyBtn(safeName);
+                } else {
+                    QNetworkRequest req((QUrl(userUrl)));
+                    req.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0");
+                    QNetworkReply *reply = m_netManager->get(req);
+                    connect(reply, &QNetworkReply::finished, this, [reply, safeName, applyBtn]() {
+                        if (reply->error() == QNetworkReply::NoError) {
+                            QFile f(safeName);
+                            if (f.open(QIODevice::WriteOnly)) {
+                                f.write(reply->readAll());
+                                f.close();
+                            }
+                            applyBtn(safeName);
+                        } else {
+                            applyBtn("");
+                        }
+                        reply->deleteLater();
+                    });
+                    applyBtn(""); // show default while loading
+                }
+            } else {
+                applyBtn("");
+            }
+        } else {
+            // Standard generic behavior
+            if (obj["isCategory"].toBool(false)) {
+                item->setText(obj["name"].toString());
+            } else {
+                item->setText(QString("%1\n%2").arg(obj["org"].toString(), obj["name"].toString()));
+            }
+            if (QListWidget *lw = item->listWidget()) {
+                lw->setItemWidget(item, nullptr);
+                item->setSizeHint(lw->gridSize());
+            } else {
+                item->setSizeHint(QSize(76, 96));
+            }
+            if (QFile::exists(safeName)) item->setIcon(QIcon(safeName));
+            else if (QFile::exists(safeOrg)) item->setIcon(QIcon(safeOrg));
+            else if (org.contains("arrl") && QFile::exists("arrl.png")) item->setIcon(QIcon("arrl.png"));
+            else if (org.contains("arrl") && QFile::exists("arrl_small.png")) item->setIcon(QIcon("arrl_small.png"));
+            else item->setIcon(QIcon("diploma.svg"));
+        }
+    };
+
+    for (const QString &awStr : savedAwards) {
+        QJsonDocument doc = QJsonDocument::fromJson(awStr.toUtf8());
+        if (!doc.isObject()) continue;
+        QJsonObject obj = doc.object();
+        
+        QListWidgetItem *item;
+        if (obj["isCategory"].toBool(false)) {
+            QString display = obj["name"].toString();
+            item = new QListWidgetItem(display, m_stationCategories);
+            item->setData(Qt::UserRole, awStr);
+        } else {
+            QString display = QString("%1\n%2").arg(obj["org"].toString(), obj["name"].toString());
+            item = new QListWidgetItem(display, m_stationAwards);
+            item->setData(Qt::UserRole, awStr);
+            if (!obj["category"].toString().isEmpty()) {
+                bool catExists = false;
+                QString cName = obj["category"].toString().trimmed();
+                for (int c = 0; c < m_stationCategories->count(); ++c) {
+                    QJsonObject catObj = QJsonDocument::fromJson(m_stationCategories->item(c)->data(Qt::UserRole).toString().toUtf8()).object();
+                    if (catObj["name"].toString().trimmed() == cName) {
+                        catExists = true;
+                        break;
+                    }
+                }
+                if (catExists) {
+                    item->setHidden(true);
+                }
+            }
+        }
+        loadItemIcon(item, obj);
+    }
+    
+    // layout->addWidget(m_stationAwards, 1);
+    
+    QHBoxLayout *bottomLayout = new QHBoxLayout;
+    
+    QToolButton *addAwBtn = new QToolButton(page);
+    addAwBtn->setText("Add New Award");
+    addAwBtn->setIcon(QIcon("diploma_add.svg"));
+    addAwBtn->setIconSize(QSize(48, 48));
+    addAwBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+
+    QToolButton *importAwBtn = new QToolButton(page);
+    importAwBtn->setText("Import XML(s)");
+    importAwBtn->setIcon(QIcon("diploma.svg")); 
+    importAwBtn->setIconSize(QSize(48, 48));
+    importAwBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    
+    QToolButton *rmAwBtn = new QToolButton(page);
+    rmAwBtn->setText("Remove Selected");
+    rmAwBtn->setIcon(QIcon("diploma_remove.svg"));
+    rmAwBtn->setIconSize(QSize(48, 48));
+    rmAwBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+
+    QLabel *sizeLabel = new QLabel;
+    
+    bottomLayout->addWidget(sizeLabel);
+    bottomLayout->addStretch();
+    bottomLayout->addWidget(addAwBtn);
+    bottomLayout->addWidget(importAwBtn);
+    bottomLayout->addWidget(rmAwBtn);
+    layout->addLayout(bottomLayout);
+    
+    QObject::connect(importAwBtn, &QToolButton::clicked, this, [this, loadItemIcon]() {
+        QSettings s(QCoreApplication::organizationName(), "Qwain");
+        QString defDir = s.value("users_unique_config_dir", QDir::homePath()).toString();
+        
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("Import Mode");
+        msgBox.setText("How would you like to import awards?");
+        QPushButton *btnFiles = msgBox.addButton("Select XML File(s)", QMessageBox::ActionRole);
+        QPushButton *btnDir = msgBox.addButton("Select Directory", QMessageBox::ActionRole);
+        msgBox.addButton(QMessageBox::Cancel);
+        msgBox.exec();
+        
+        QStringList importedXMLPaths;
+        if (msgBox.clickedButton() == btnFiles) {
+            importedXMLPaths = QFileDialog::getOpenFileNames(this, "Select Award XML(s)", defDir, "XML Files (*.xml);;All Files (*)");
+        } else if (msgBox.clickedButton() == btnDir) {
+            QString dirCands = QFileDialog::getExistingDirectory(this, "Select Directory", defDir);
+            if (!dirCands.isEmpty()) importedXMLPaths.append(dirCands);
+        } else {
+            return;
+        }
+        
+        if (importedXMLPaths.size() >= 1) {
+            QStringList actualPaths;
+            for (const QString &p : importedXMLPaths) {
+                QFileInfo fi(p);
+                if (fi.isDir()) {
+                    QDir d(p);
+                    QStringList files = d.entryList(QStringList() << "*.xml", QDir::Files);
+                    for (const QString &f : files) actualPaths << d.absoluteFilePath(f);
+                } else if (fi.isFile() && p.endsWith(".xml", Qt::CaseInsensitive)) {
+                    actualPaths << p;
+                }
+            }
+            importedXMLPaths = actualPaths;
+            
+            if (importedXMLPaths.isEmpty()) {
+                QMessageBox::warning(this, "Import", "No valid XML files found.");
+                return;
+            }
+            
+            if (QMessageBox::question(this, "Process Batch?", QString("Process %1 file(s)? This will import them directly into defined awards.").arg(importedXMLPaths.size()), QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Ok) {
+                QDialog catDlg(this);
+                catDlg.setWindowTitle("Select Category");
+                QVBoxLayout *vCatLay = new QVBoxLayout(&catDlg);
+                vCatLay->addWidget(new QLabel("Assign imported awards to category (blank for none):"));
+                QComboBox *cbImportCategory = new QComboBox(&catDlg);
+                cbImportCategory->addItem("");
+                for (int i = 0; i < m_stationCategories->count(); ++i) {
+                    cbImportCategory->addItem(m_stationCategories->item(i)->text());
+                }
+                vCatLay->addWidget(cbImportCategory);
+                QDialogButtonBox *catBb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &catDlg);
+                vCatLay->addWidget(catBb);
+                QObject::connect(catBb, &QDialogButtonBox::accepted, &catDlg, &QDialog::accept);
+                QObject::connect(catBb, &QDialogButtonBox::rejected, &catDlg, &QDialog::reject);
+                
+                if (catDlg.exec() != QDialog::Accepted) return;
+                QString selectedCat = cbImportCategory->currentText();
+                
+                int successCount = 0;
+                int dupAction = 0; // 0=Ask, 1=Overwrite, 2=Skip
+                for (const QString &path : importedXMLPaths) {
+                    QFile file(path);
+                    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+                    
+                    QMap<QString, QString> fields;
+                    QXmlStreamReader xml(&file);
+                    QString currentElement;
+                    QString criteriaRules;
+                    while (!xml.atEnd() && !xml.hasError()) {
+                        QXmlStreamReader::TokenType token = xml.readNext();
+                        if (token == QXmlStreamReader::StartElement) {
+                            currentElement = xml.name().toString();
+                            if (currentElement == "AwardCriteria" && xml.attributes().hasAttribute("awardName")) {
+                                fields["awardName"] = xml.attributes().value("awardName").toString();
+                            }
+                        } else if (token == QXmlStreamReader::Characters && !xml.isWhitespace()) {
+                            if (currentElement == "CriteriaRule") {
+                                criteriaRules += xml.text().toString() + "\n";
+                            } else if (!currentElement.isEmpty()) {
+                                fields[currentElement] += xml.text().toString();
+                            }
+                        } else if (token == QXmlStreamReader::EndElement) {
+                            currentElement.clear();
+                        }
+                    }
+                    
+                    QJsonObject newObj;
+                    for (auto it = fields.begin(); it != fields.end(); ++it) {
+                        newObj[it.key()] = it.value();
+                    }
+                    if (fields.contains("awardName")) newObj["name"] = fields["awardName"];
+                    if (fields.contains("POTAId") && !fields["POTAId"].trimmed().isEmpty()) {
+                        newObj["name"] = fields["POTAId"].trimmed();
+                    }
+                    if (!selectedCat.isEmpty()) newObj["category"] = selectedCat;
+                    
+                    newObj["xmlCriteria"] = criteriaRules;
+                    if (fields.contains("maidenhead")) newObj["maidenhead"] = (fields["maidenhead"].toLower() == "true");
+                    if (fields.contains("Author")) newObj["xmlAuthor"] = fields["Author"];
+                    if (fields.contains("DateCreated")) newObj["xmlDateCreated"] = fields["DateCreated"];
+                    if (fields.contains("CriteriaDescription") && criteriaRules.isEmpty()) {
+                        newObj["xmlCriteria"] = fields["CriteriaDescription"];
+                    }
+                    newObj["isCategory"] = false;
+                    
+                    if (fields.contains("IconImage")) {
+                        QByteArray data = QByteArray::fromBase64(fields["IconImage"].toLatin1());
+                        QString safeName = newObj["name"].toString().replace(" ", "_").toLower();
+                        safeName.remove(QRegularExpression("[^a-z0-9_]"));
+                        safeName += ".png";
+                        QFile f(safeName);
+                        if (f.open(QIODevice::WriteOnly)) {
+                            f.write(data);
+                            f.close();
+                        }
+                    }
+                    
+                    QString awardName = newObj["name"].toString();
+                    
+                    QListWidgetItem *existingItem = nullptr;
+                    for (int i=0; i<m_stationAwards->count(); ++i) {
+                        QListWidgetItem *item = m_stationAwards->item(i);
+                        QJsonObject obj = QJsonDocument::fromJson(item->data(Qt::UserRole).toString().toUtf8()).object();
+                        if (obj["name"].toString() == awardName) {
+                            existingItem = item;
+                            break;
+                        }
+                    }
+                    
+                    bool skipThis = false;
+                    if (existingItem) {
+                        if (dupAction == 2) {
+                            skipThis = true;
+                        } else if (dupAction == 1) {
+                            // Do nothing, we will overwrite by keeping existingItem
+                        } else {
+                            QMessageBox colBox(this);
+                            colBox.setWindowTitle("Duplicate Found");
+                            colBox.setText(QString("An award named '%1' already exists.").arg(awardName));
+                            QPushButton *btnOverwrite = colBox.addButton("Overwrite", QMessageBox::ActionRole);
+                            QPushButton *btnRename = colBox.addButton("Rename", QMessageBox::ActionRole);
+                            QPushButton *btnSkip = colBox.addButton("Cancel / Skip", QMessageBox::ActionRole);
+                            
+                            QCheckBox *rememberCb = new QCheckBox("Remember this choice for current batch", &colBox);
+                            colBox.setCheckBox(rememberCb);
+                            
+                            colBox.exec();
+
+                            if (colBox.clickedButton() == btnSkip) {
+                                skipThis = true;
+                                if (rememberCb->isChecked()) dupAction = 2;
+                            } else if (colBox.clickedButton() == btnRename) {
+                                bool ok;
+                                QString newN = QInputDialog::getText(this, "Rename Award", "Enter new name:", QLineEdit::Normal, awardName + " (Imported)", &ok);
+                                if (ok && !newN.trimmed().isEmpty()) {
+                                    newObj["name"] = newN.trimmed();
+                                    existingItem = nullptr; 
+                                } else {
+                                    skipThis = true;
+                                }
+                            } else if (colBox.clickedButton() == btnOverwrite) {
+                                if (rememberCb->isChecked()) dupAction = 1;
+                            }
+                        }
+                    }
+                    
+                    if (skipThis) continue;
+                    
+                    QString display = QString("%1\n%2").arg(newObj["org"].toString(), newObj["name"].toString());
+                    
+                    if (existingItem) {
+                        existingItem->setText(display);
+                        existingItem->setData(Qt::UserRole, QString(QJsonDocument(newObj).toJson(QJsonDocument::Compact)));
+                        if (!newObj["category"].toString().isEmpty()) {
+                            existingItem->setHidden(true);
+                        } else {
+                            existingItem->setHidden(false);
+                        }
+                        loadItemIcon(existingItem, newObj);
+                    } else {
+                        QListWidgetItem *newItem = new QListWidgetItem(display, m_stationAwards);
+                        newItem->setData(Qt::UserRole, QString(QJsonDocument(newObj).toJson(QJsonDocument::Compact)));
+                        if (!newObj["category"].toString().isEmpty()) {
+                            newItem->setHidden(true);
+                        }
+                        loadItemIcon(newItem, newObj);
+                    }
+                    successCount++;
+                }
+                QMessageBox::information(this, "Batch Import", QString("Successfully imported %1 awards.").arg(successCount));
+            }
+        }
+    });
+    
+    QTimer *sizeTimer = new QTimer(page);
+    connect(sizeTimer, &QTimer::timeout, this, [this, sizeLabel]() {
+        qint64 bytes = 0;
+        for (int i=0; i<m_stationAwards->count(); ++i) {
+            bytes += m_stationAwards->item(i)->data(Qt::UserRole).toString().toUtf8().size();
+        }
+        for (int i=0; i<m_stationCategories->count(); ++i) {
+            bytes += m_stationCategories->item(i)->data(Qt::UserRole).toString().toUtf8().size();
+        }
+        if (bytes < 1024) sizeLabel->setText(QString("Data size: %1 B").arg(bytes));
+        else if (bytes < 1024*1024) sizeLabel->setText(QString("Data size: %1 KB").arg(bytes / 1024.0, 0, 'f', 1));
+        else sizeLabel->setText(QString("Data size: %1 MB").arg(bytes / (1024.0*1024.0), 0, 'f', 2));
+    });
+    sizeTimer->start(1000);
+    
+    QShortcut *ctrlE = new QShortcut(QKeySequence("Ctrl+E"), m_stationAwards);
+    connect(ctrlE, &QShortcut::activated, this, [this]() {
+        QList<QListWidgetItem*> sel = m_stationAwards->selectedItems();
+        if (sel.isEmpty()) return;
+        QJsonObject obj = QJsonDocument::fromJson(sel.first()->data(Qt::UserRole).toString().toUtf8()).object();
+        
+        QDialog cmpDlg(this);
+        cmpDlg.setWindowTitle("Side-by-Side Comparison: Current Data vs XML Format");
+        cmpDlg.resize(900, 500);
+        QHBoxLayout *hl = new QHBoxLayout(&cmpDlg);
+        
+        QTextEdit *jsonTe = new QTextEdit(&cmpDlg);
+        jsonTe->setReadOnly(true);
+        jsonTe->setPlainText(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        
+        QString xmlStr = QString("<AwardCriteria awardName=\"%1\">\n"
+                                 "    <CriteriaDescription>%2</CriteriaDescription>\n"
+                                 "    <Author>%3</Author>\n"
+                                 "    <DateCreated>%4</DateCreated>\n"
+                                 "</AwardCriteria>")
+                            .arg(obj["name"].toString().toHtmlEscaped())
+                            .arg(obj["xmlCriteria"].toString().toHtmlEscaped())
+                            .arg(obj["xmlAuthor"].toString().toHtmlEscaped())
+                            .arg(obj["xmlDateCreated"].toString().toHtmlEscaped());
+                            
+        QTextEdit *xmlTe = new QTextEdit(&cmpDlg);
+        xmlTe->setReadOnly(true);
+        xmlTe->setPlainText(xmlStr);
+        
+        QVBoxLayout *jl = new QVBoxLayout; jl->addWidget(new QLabel("Current (JSON)")); jl->addWidget(jsonTe);
+        QVBoxLayout *xl = new QVBoxLayout; xl->addWidget(new QLabel("XML Portability Spec")); xl->addWidget(xmlTe);
+        
+        hl->addLayout(jl);
+        hl->addLayout(xl);
+        
+        QPushButton *cpBtn = new QPushButton("Copy to Clipboard", &cmpDlg);
+        connect(cpBtn, &QPushButton::clicked, &cmpDlg, [xmlStr]() {
+            QApplication::clipboard()->setText(xmlStr);
+        });
+        QPushButton *closeBtn = new QPushButton("Close", &cmpDlg);
+        connect(closeBtn, &QPushButton::clicked, &cmpDlg, &QDialog::accept);
+        QVBoxLayout *bl = new QVBoxLayout;
+        bl->addStretch();
+        bl->addWidget(cpBtn);
+        bl->addWidget(closeBtn);
+        hl->addLayout(bl);
+        
+        cmpDlg.exec();
+    });
+    
+    m_forcePrefetchBtn = new QPushButton("Force Icon Cache Update", this);
+    m_prefetchStatus = new QLabel("Idle.", this);
+    
+    QHBoxLayout *prefetchLayout = new QHBoxLayout;
+    prefetchLayout->addWidget(m_forcePrefetchBtn);
+    prefetchLayout->addWidget(m_prefetchStatus);
+    prefetchLayout->addStretch();
+    layout->addLayout(prefetchLayout);
+    
+
+    auto openEditDialog = [this, loadItemIcon](QListWidgetItem *item) {
+        if (!item) return;
+        
+        void *origPtr = item->data(Qt::UserRole + 1).value<void*>();
+        if (origPtr) {
+            item = static_cast<QListWidgetItem*>(origPtr);
+        }
+        
+        QDialog dlg(this);
+        dlg.setWindowTitle("Edit Award");
+        QVBoxLayout *topLevelLayout = new QVBoxLayout(&dlg);
+        QHBoxLayout *mainLayout = new QHBoxLayout;
+        
+        QScrollArea *leftScroll = new QScrollArea(&dlg);
+        QWidget *leftPane = new QWidget;
+        QFormLayout *l = new QFormLayout(leftPane);
+        leftScroll->setWidgetResizable(true);
+        leftScroll->setWidget(leftPane);
+        leftScroll->setMinimumWidth(400);
+        
+        QScrollArea *rightScroll = new QScrollArea(&dlg);
+        QWidget *rightPane = new QWidget;
+        QFormLayout *rl = new QFormLayout(rightPane);
+        rightScroll->setWidgetResizable(true);
+        rightScroll->setWidget(rightPane);
+        rightScroll->setMinimumWidth(300);
+        
+        QJsonObject obj = QJsonDocument::fromJson(item->data(Qt::UserRole).toString().toUtf8()).object();
+        QLineEdit *eOrg = new QLineEdit(obj["org"].toString(), leftPane);
+        QLineEdit *eName = new QLineEdit(obj["name"].toString(), leftPane);
+        QTextEdit *eDesc = new QTextEdit(obj["desc"].toString(), leftPane); eDesc->setFixedHeight(60);
+        QTextEdit *eReq = new QTextEdit(obj["req"].toString(), leftPane); eReq->setFixedHeight(60);
+        QTextEdit *eTrack = new QTextEdit(obj["track"].toString(), leftPane); eTrack->setFixedHeight(60);
+        QLineEdit *eUrl = new QLineEdit(obj["url"].toString(), leftPane);
+        QLineEdit *eEarnedBy = new QLineEdit(obj["earnedByXML"].toString(), leftPane);
+        
+        QCheckBox *cIsCategory = new QCheckBox("Is This A Category?", leftPane);
+        cIsCategory->setChecked(obj["isCategory"].toBool(false));
+        QComboBox *cbCategory = new QComboBox(leftPane);
+        cbCategory->view()->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        cbCategory->addItem("");
+        for (int i = 0; i < m_stationCategories->count(); ++i) {
+            QListWidgetItem *catItem = m_stationCategories->item(i);
+            cbCategory->addItem(catItem->text());
+        }
+        cbCategory->setCurrentText(obj["category"].toString());
+        
+        QObject::connect(cIsCategory, &QCheckBox::toggled, &dlg, [eOrg](bool checked) {
+            if (checked) {
+                eOrg->clear();
+                eOrg->setDisabled(true);
+            } else {
+                eOrg->setEnabled(true);
+            }
+        });
+        if (cIsCategory->isChecked()) eOrg->setDisabled(true);
+        
+        QCheckBox *cRenderMap = new QCheckBox("Yes", &dlg);
+        cRenderMap->setChecked(obj["renderMap"].toBool(false));
+
+        QCheckBox *cMaidenhead = new QCheckBox("Use Default", &dlg);
+        cMaidenhead->setChecked(obj["maidenhead"].toBool(false));
+
+        QLineEdit *eMapImage = new QLineEdit(obj["mapImage"].toString(), &dlg);
+        QPushButton *browseMapBtn = new QPushButton("Browse...", &dlg);
+        
+        QObject::connect(browseMapBtn, &QPushButton::clicked, &dlg, [eMapImage, &dlg]() {
+            QString file = QFileDialog::getOpenFileName(&dlg, "Select Map Image", "", "Images (*.png *.jpg *.svg)");
+            if (!file.isEmpty()) eMapImage->setText(file);
+        });
+
+        QObject::connect(cMaidenhead, &QCheckBox::toggled, &dlg, [eMapImage, browseMapBtn](bool checked) {
+            eMapImage->setDisabled(checked);
+            browseMapBtn->setDisabled(checked);
+        });
+        if (cMaidenhead->isChecked()) {
+            eMapImage->setDisabled(true);
+            browseMapBtn->setDisabled(true);
+        }
+        
+        QPushButton *generateMapBtn = new QPushButton("Generate Map", &dlg);
+        QObject::connect(generateMapBtn, &QPushButton::clicked, &dlg, [eName, cMaidenhead, eMapImage, &dlg]() {
+            QString appDataDir = getAppDataDir();
+            QString fileBaseName = eName->text();
+            fileBaseName.remove(QRegularExpression("[^a-zA-Z0-9_]"));
+            QString cachedMap = appDataDir + "/" + fileBaseName + "_map.png";
+            
+            if (QFile::exists(cachedMap)) {
+                QFile::remove(cachedMap);
+            }
+            
+            QString srcMap;
+            if (cMaidenhead->isChecked()) {
+                QSettings s(QCoreApplication::organizationName(), "Qwain");
+                s.beginGroup("Files");
+                srcMap = s.value("maidenheadImage", "").toString();
+                s.endGroup();
+            } else {
+                srcMap = eMapImage->text();
+            }
+            
+            if (!srcMap.isEmpty() && QFile::exists(srcMap)) {
+                QPixmap p(srcMap);
+                if (!p.isNull()) {
+                    p.save(cachedMap);
+                    QToolTip::showText(dlg.mapToGlobal(dlg.rect().center()), "Map Re-generated!", nullptr, QRect(), 2000);
+                }
+            } else {
+                QToolTip::showText(dlg.mapToGlobal(dlg.rect().center()), "No valid map source found.", nullptr, QRect(), 2000);
+            }
+        });
+        
+        // Add map and browse back
+        
+        QHBoxLayout *baseMapLayout = new QHBoxLayout;
+        baseMapLayout->addWidget(cMaidenhead);
+        baseMapLayout->addWidget(eMapImage);
+        baseMapLayout->addWidget(browseMapBtn);
+        baseMapLayout->addWidget(generateMapBtn);
+        baseMapLayout->addStretch();
+        
+        QLabel *iconLab = new QLabel("[No Image]", &dlg);
+        iconLab->setFixedSize(64, 64);
+        iconLab->setAlignment(Qt::AlignCenter);
+        
+        auto reloadIcon = [iconLab, eName, eOrg]() {
+            QString safeName = eName->text().replace(" ", "_").toLower();
+            safeName.remove(QRegularExpression("[^a-z0-9_]"));
+            safeName += ".png";
+            
+            QString safeOrg = eOrg->text().replace(" ", "_").toLower();
+            safeOrg.remove(QRegularExpression("[^a-z0-9_]"));
+            safeOrg += ".png";
+            
+            QString org = eOrg->text().toLower();
+            if (QFile::exists(safeName)) {
+                iconLab->setPixmap(QPixmap(safeName).scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else if (QFile::exists(safeOrg)) {
+                iconLab->setPixmap(QPixmap(safeOrg).scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else if (org.contains("arrl") && QFile::exists("arrl.png")) {
+                iconLab->setPixmap(QPixmap("arrl.png").scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else if (org.contains("arrl") && QFile::exists("arrl_small.png")) {
+                iconLab->setPixmap(QPixmap("arrl_small.png").scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else {
+                iconLab->clear();
+                iconLab->setText("[No Image]");
+            }
+        };
+        reloadIcon();
+        
+        QPushButton *recacheBtn = new QPushButton("Re-cache Icon", &dlg);
+        connect(recacheBtn, &QPushButton::clicked, &dlg, [this, eUrl, eOrg, eName, recacheBtn, reloadIcon]() {
+            if (eUrl->text().isEmpty()) {
+                eUrl->setText(QString("https://www.google.com/search?tbm=isch&q=%1+%2").arg(QString(QUrl::toPercentEncoding(eOrg->text().toUtf8()))).arg(QString(QUrl::toPercentEncoding(eName->text().toUtf8()))));
+            }
+            QString urlStr = eUrl->text();
+            
+            QString safeName = eName->text();
+            safeName = safeName.replace(" ", "_").toLower();
+            safeName.remove(QRegularExpression("[^a-z0-9_]"));
+            safeName += ".png";
+            
+            QNetworkRequest req;
+            req.setUrl(QUrl(urlStr));
+            req.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            QNetworkReply *reply = m_netManager->get(req);
+            
+            connect(reply, &QNetworkReply::finished, reply, [this, reply, safeName, reloadIcon, eUrl]() {
+                if (reply->error() == QNetworkReply::NoError) {
+                    if (reply->request().url().toString().startsWith("https://www.google")) {
+                        QString html = reply->readAll();
+                        QRegularExpression re("<img[^>]+src=\"(https?://[^\"]+gstatic\\.com/images[^\"]+)\"");
+                        QRegularExpressionMatchIterator i = re.globalMatch(html);
+                        QStringList foundUrls;
+                        while(i.hasNext()) {
+                            QString u = i.next().captured(1);
+                            if (!foundUrls.contains(u)) foundUrls << u;
+                            if (foundUrls.size() >= 6) break;
+                        }
+                        if (foundUrls.size() < 6) {
+                            QRegularExpression re2("<img[^>]+src=\"(https?://[^\"]+)\"");
+                            QRegularExpressionMatchIterator i2 = re2.globalMatch(html);
+                            while(i2.hasNext()) {
+                                QString t = i2.next().captured(1);
+                                if (!t.contains("google.com") && !foundUrls.contains(t)) {
+                                    foundUrls << t;
+                                    if (foundUrls.size() >= 6) break;
+                                }
+                            }
+                        }
+                        if (!foundUrls.isEmpty()) {
+                            QWidget *p = reply->parent() ? qobject_cast<QWidget*>(reply->parent()) : nullptr;
+                            QDialog pickDlg(p);
+                            pickDlg.setWindowTitle("Select Icon");
+                            QGridLayout *gl = new QGridLayout(&pickDlg);
+                            int row=0, col=0;
+                            for (const QString &u : foundUrls) {
+                                QPushButton *imgBtn = new QPushButton(&pickDlg);
+                                imgBtn->setFixedSize(80,80);
+                                imgBtn->setStyleSheet("border: 1px solid gray;");
+                                
+                                QNetworkAccessManager *nm = reply->manager();
+                                QString finalUrl = u;
+                                finalUrl.replace("&amp;", "&");
+                                QNetworkReply *imgRep = nm->get(QNetworkRequest(QUrl(finalUrl)));
+                                QObject::connect(imgRep, &QNetworkReply::finished, imgRep, [imgRep, imgBtn]() {
+                                    if (imgRep->error() == QNetworkReply::NoError) {
+                                        QPixmap p;
+                                        if (p.loadFromData(imgRep->readAll())) {
+                                            imgBtn->setIcon(QIcon(p));
+                                            imgBtn->setIconSize(QSize(76,76));
+                                            imgBtn->setProperty("hasImg", true);
+                                            imgBtn->setProperty("pixmapData", p);
+                                        }
+                                    }
+                                    imgRep->deleteLater();
+                                });
+                                
+                                QObject::connect(imgBtn, &QPushButton::clicked, &pickDlg, [safeName, reloadIcon, &pickDlg, imgBtn, eUrl, finalUrl]() {
+                                    if (imgBtn->property("hasImg").toBool()) {
+                                        QPixmap p = imgBtn->property("pixmapData").value<QPixmap>();
+                                        p.save(safeName);
+                                        eUrl->setText(finalUrl);
+                                        reloadIcon();
+                                        pickDlg.accept();
+                                    }
+                                });
+                                gl->addWidget(imgBtn, row, col);
+                                if(++col > 2) { col=0; row++; }
+                            }
+                            QPushButton *cnxBtn = new QPushButton("Cancel");
+                            QObject::connect(cnxBtn, &QPushButton::clicked, &pickDlg, &QDialog::reject);
+                            gl->addWidget(cnxBtn, row+1, 0, 1, 3);
+                            pickDlg.exec();
+                        } else {
+                            qDebug() << "No relevant image found in google search HTML";
+                        }
+                    } else {
+                        // Regular URL logic
+                        QPixmap p;
+                        if (p.loadFromData(reply->readAll())) {
+                            p.save(safeName, "PNG");
+                        }
+                        reloadIcon();
+                    }
+                }
+                reply->deleteLater();
+            });
+        });
+        
+        QLineEdit *eXmlAuthor = new QLineEdit(obj["xmlAuthor"].toString(), &dlg);
+        QLineEdit *eXmlDate = new QLineEdit(obj["xmlDateCreated"].toString(), &dlg);
+        QTextEdit *eXmlCriteria = new QTextEdit(obj["xmlCriteria"].toString(), &dlg); eXmlCriteria->setFixedHeight(60);
+        
+        auto openReqBuilder = [eXmlCriteria, this, &dlg]() {
+            QDialog critDlg(&dlg);
+            critDlg.setWindowTitle("Add Condition");
+            QVBoxLayout *cvl = new QVBoxLayout(&critDlg);
+            
+            QScrollArea *sa = new QScrollArea(&critDlg);
+            QWidget *saWidget = new QWidget;
+            QVBoxLayout *rowsLayout = new QVBoxLayout(saWidget);
+            rowsLayout->addStretch(1);
+            sa->setWidget(saWidget);
+            sa->setWidgetResizable(true);
+            cvl->addWidget(sa);
+            
+            QPushButton *btnAddCond = new QPushButton("Add Condition", &critDlg);
+            QHBoxLayout *btnLayout = new QHBoxLayout;
+            btnLayout->addStretch(1);
+            btnLayout->addWidget(btnAddCond);
+            cvl->addLayout(btnLayout);
+            
+            QDialogButtonBox *cbb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &critDlg);
+            cvl->addWidget(cbb);
+            
+            auto addRuleRow = [&]() {
+                QWidget *rw = new QWidget;
+                QHBoxLayout *rhl = new QHBoxLayout(rw);
+                rhl->setContentsMargins(0,0,0,0);
+                
+                QComboBox *cbMatch = new QComboBox(rw);
+                cbMatch->setObjectName("cbMatch");
+                cbMatch->addItems({"Match", "Not Match", " "});
+                
+                QComboBox *cbTag = new QComboBox(rw);
+                cbTag->setObjectName("cbTag");
+                QStringList tags = {"BAND", "MODE", "GRIDSQUARE", "STATE", "COUNTY", "COUNTRY", "DXCC", "CALL", "VUCC_GRIDS"};
+                if (this->m_stationAdifTags) {
+                    for(int i=0; i<this->m_stationAdifTags->count(); ++i) {
+                        QString t = this->m_stationAdifTags->item(i)->text().remove("<").remove(">").toUpper();
+                        if(!tags.contains(t) && !t.isEmpty()) 
+                            tags << t;
+                    }
+                }
+                cbTag->addItems(tags);
+                
+                QComboBox *cbNumMatches = new QComboBox(rw);
+                cbNumMatches->setObjectName("cbNumMatches");
+                cbNumMatches->addItems({"More than", "Equals", "Custom"});
+                
+                QSpinBox *sbNum = new QSpinBox(rw);
+                sbNum->setObjectName("sbNum");
+                sbNum->setMinimum(0); sbNum->setMaximum(9999);
+                sbNum->setValue(0);
+                sbNum->setSingleStep(1);
+                
+                QPushButton *delBtn = new QPushButton("X", rw);
+                delBtn->setFixedWidth(30);
+                QObject::connect(delBtn, &QPushButton::clicked, [rw]() {
+                    rw->deleteLater();
+                });
+                
+                rhl->addWidget(cbMatch);
+                rhl->addWidget(cbTag);
+                rhl->addWidget(cbNumMatches);
+                rhl->addWidget(sbNum);
+                rhl->addWidget(delBtn);
+                
+                rowsLayout->insertWidget(rowsLayout->count() - 1, rw);
+            };
+            
+            addRuleRow();
+            
+            QObject::connect(btnAddCond, &QPushButton::clicked, [&]() {
+                addRuleRow();
+            });
+            
+            QObject::connect(cbb, &QDialogButtonBox::accepted, &critDlg, &QDialog::accept);
+            QObject::connect(cbb, &QDialogButtonBox::rejected, [&]() {
+                if (QMessageBox::question(&critDlg, "Cancel", "Are you sure you want to cancel without saving?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    critDlg.reject();
+                }
+            });
+            
+            if (critDlg.exec() == QDialog::Accepted) {
+                QStringList generated;
+                for (int i = 0; i < rowsLayout->count() - 1; ++i) {
+                    QWidget *rw = rowsLayout->itemAt(i)->widget();
+                    if (!rw) continue;
+                    QComboBox *cbM = rw->findChild<QComboBox*>("cbMatch");
+                    QComboBox *cbT = rw->findChild<QComboBox*>("cbTag");
+                    QComboBox *cbN = rw->findChild<QComboBox*>("cbNumMatches");
+                    QSpinBox *sbNum = rw->findChild<QSpinBox*>("sbNum");
+                    if (cbM && cbT && cbN && sbNum) {
+                        generated << QString("%1 <%2> %3 %4").arg(cbM->currentText(), cbT->currentText(), cbN->currentText()).arg(sbNum->value());
+                    }
+                }
+                if (!generated.isEmpty()) {
+                    QString cur = eXmlCriteria->toPlainText();
+                    if (!cur.isEmpty() && !cur.endsWith("\n")) cur += "\n";
+                    cur += generated.join("\n") + "\n";
+                    eXmlCriteria->setPlainText(cur);
+                }
+            }
+        };
+        
+        ClickEventFilter *efReq = new ClickEventFilter(eReq);
+        efReq->onClick = openReqBuilder;
+        eReq->installEventFilter(efReq);
+        
+        ClickEventFilter *efXml = new ClickEventFilter(eXmlCriteria);
+        efXml->onClick = openReqBuilder;
+        eXmlCriteria->installEventFilter(efXml);
+        
+        QPushButton *btnShowXml = new QPushButton("Show XML Data Editor...", &dlg);
+        QObject::connect(btnShowXml, &QPushButton::clicked, &dlg, [this, eOrg, eName, eDesc, eReq, eTrack, eUrl, eEarnedBy, cRenderMap, eMapImage, cMaidenhead, eXmlAuthor, eXmlDate, eXmlCriteria, cIsCategory, cbCategory, &dlg, &obj]() {
+            QDialog xmlDlg(&dlg);
+            xmlDlg.setWindowTitle("Edit award logic configuration parameters");
+            QFormLayout *xl = new QFormLayout(&xmlDlg);
+            
+            QLineEdit *xOrg = new QLineEdit(eOrg->text(), &xmlDlg);
+            QLineEdit *xName = new QLineEdit(eName->text(), &xmlDlg);
+            QTextEdit *xDesc = new QTextEdit(eDesc->toPlainText(), &xmlDlg); xDesc->setFixedHeight(60);
+            QTextEdit *xReq = new QTextEdit(eReq->toPlainText(), &xmlDlg); xReq->setFixedHeight(60);
+            QTextEdit *xTrack = new QTextEdit(eTrack->toPlainText(), &xmlDlg); xTrack->setFixedHeight(60);
+            QLineEdit *xUrl = new QLineEdit(eUrl->text(), &xmlDlg);
+            QLineEdit *xEarnedBy = new QLineEdit(eEarnedBy->text(), &xmlDlg);
+            QLineEdit *xMapImage = new QLineEdit(eMapImage->text(), &xmlDlg);
+            QCheckBox *xMaidenhead = new QCheckBox("Maidenhead", &xmlDlg);
+            xMaidenhead->setChecked(cMaidenhead->isChecked());
+            
+            QLineEdit *xAuthor = new QLineEdit(eXmlAuthor->text(), &xmlDlg);
+            QLineEdit *xDate = new QLineEdit(eXmlDate->text(), &xmlDlg);
+            QTextEdit *xCriteria = new QTextEdit(eXmlCriteria->toPlainText(), &xmlDlg); xCriteria->setFixedHeight(60);
+            
+            auto getXmlStr = [=]() {
+                QString rulesStr;
+                QStringList lines = xCriteria->toPlainText().split('\n');
+                for (const QString& ln : lines) {
+                    QString tr = ln.trimmed();
+                    if (!tr.isEmpty()) {
+                        rulesStr += QString("    <CriteriaRule>%1</CriteriaRule>\n").arg(tr.toHtmlEscaped());
+                    }
+                }
+                
+                return QString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                 "<QSLLayout version=\"1.0\" encoding=\"UTF-8\" dateFormat=\"YYYY-MM-DD\" timeFormat=\"HH:MM\">\n"
+                                 "  <DocumentSpec>\n"
+                                 "    <Page widthPx=\"800\" heightPx=\"600\"/>\n"
+                                 "    <Printer name=\"default\" orientation=\"Portrait\"/>\n"
+                                 "    <BackgroundImage path=\"\"/>\n"
+                                 "  </DocumentSpec>\n"
+                                 "  <GlobalStyle>\n"
+                                 "    <Font family=\"Arial\" size=\"12\" weight=\"400\" style=\"0\" charset=\"1\"/>\n"
+                                 "    <Color hex=\"#000000\"/>\n"
+                                 "    <Rotation degrees=\"0\"/>\n"
+                                 "  </GlobalStyle>\n"
+                                 "  <Checkboxes></Checkboxes>\n"
+                                 "  <Table id=\"t1\" x=\"0\" y=\"0\" label=\"t\" type=\"repeating_qso_table\" repeatsPerPage=\"1\">\n"
+                                 "    <CellDataTemplate></CellDataTemplate>\n"
+                                 "    <Columns></Columns>\n"
+                                 "    <QSOEntry><DAY>1</DAY><MONTH>1</MONTH><YEAR>2000</YEAR><TIME_ON>00:00</TIME_ON><FREQ>14.0</FREQ><MODE>SSB</MODE><TX_PWR>100</TX_PWR><RST_SENT>59</RST_SENT><RST_RCVD>59</RST_RCVD></QSOEntry>\n"
+                                 "  </Table>\n"
+                                 "  <ReferencePoint id=\"rp1\" x=\"0\" y=\"0\" type=\"layout_anchor\" visible=\"false\">\n"
+                                 "    <Label></Label><DisplayText></DisplayText><CellData></CellData>\n"
+                                 "  </ReferencePoint>\n"
+                                 "  <AwardCriteria awardName=\"%1\">\n"
+                                 "    <CriteriaDescription>%2</CriteriaDescription>\n"
+                                 "    <Author>%3</Author>\n"
+                                 "    <DateCreated>%4</DateCreated>\n"
+                                 "%14"
+                                 "    <org>%5</org>\n"
+                                 "    <name>%6</name>\n"
+                                 "    <desc>%7</desc>\n"
+                                 "    <req>%8</req>\n"
+                                 "    <track>%9</track>\n"
+                                 "    <url>%10</url>\n"
+                                 "    <earnedByXML>%11</earnedByXML>\n"
+                                 "    <mapImage>%12</mapImage>\n"
+                                 "    <maidenhead>%13</maidenhead>\n"
+                                 "  </AwardCriteria>\n"
+                                 "</QSLLayout>\n")
+                            .arg(xName->text().toHtmlEscaped())
+                            .arg(xCriteria->toPlainText().toHtmlEscaped())
+                            .arg(xAuthor->text().toHtmlEscaped())
+                            .arg(xDate->text().toHtmlEscaped())
+                            .arg(xOrg->text().toHtmlEscaped())
+                            .arg(xName->text().toHtmlEscaped())
+                            .arg(xDesc->toPlainText().toHtmlEscaped())
+                            .arg(xReq->toPlainText().toHtmlEscaped())
+                            .arg(xTrack->toPlainText().toHtmlEscaped())
+                            .arg(xUrl->text().toHtmlEscaped())
+                            .arg(xEarnedBy->text().toHtmlEscaped())
+                            .arg(xMapImage->text().toHtmlEscaped())
+                            .arg(xMaidenhead->isChecked() ? "true" : "false")
+                            .arg(rulesStr);
+            };
+            
+            QTextEdit *preview = new QTextEdit(&xmlDlg);
+            preview->setReadOnly(true);
+            preview->setFixedHeight(150);
+            
+            auto updatePreview = [preview, getXmlStr]() { preview->setPlainText(getXmlStr()); };
+            connect(xOrg, &QLineEdit::textChanged, updatePreview);
+            connect(xName, &QLineEdit::textChanged, updatePreview);
+            connect(xDesc, &QTextEdit::textChanged, updatePreview);
+            connect(xReq, &QTextEdit::textChanged, updatePreview);
+            connect(xTrack, &QTextEdit::textChanged, updatePreview);
+            connect(xUrl, &QLineEdit::textChanged, updatePreview);
+            connect(xEarnedBy, &QLineEdit::textChanged, updatePreview);
+            connect(xMapImage, &QLineEdit::textChanged, updatePreview);
+            connect(xMaidenhead, &QCheckBox::stateChanged, updatePreview);
+            connect(xAuthor, &QLineEdit::textChanged, updatePreview);
+            connect(xDate, &QLineEdit::textChanged, updatePreview);
+            connect(xCriteria, &QTextEdit::textChanged, updatePreview);
+            updatePreview();
+            
+            QTabWidget *tabs = new QTabWidget(&xmlDlg);
+            QWidget *basicTab = new QWidget; QFormLayout *bl = new QFormLayout(basicTab);
+            bl->addRow("Org:", xOrg); bl->addRow("Name:", xName); bl->addRow("Desc:", xDesc); bl->addRow("Req:", xReq); bl->addRow("Track:", xTrack);
+            QWidget *advTab = new QWidget; QFormLayout *al = new QFormLayout(advTab);
+            al->addRow("URL:", xUrl); al->addRow("EarnedByXML:", xEarnedBy); al->addRow("Map Image:", xMapImage); al->addRow("Maidenhead:", xMaidenhead);
+            QWidget *metaTab = new QWidget; QFormLayout *ml = new QFormLayout(metaTab);
+            ml->addRow("Author:", xAuthor); ml->addRow("Date Created:", xDate); ml->addRow("Criteria:", xCriteria);
+            
+            auto openRuleBuilder = [xCriteria, this, &xmlDlg]() {
+                QDialog critDlg(&xmlDlg);
+                critDlg.setWindowTitle("Award Logic Builder");
+                QVBoxLayout *cvl = new QVBoxLayout(&critDlg);
+                
+                QScrollArea *sa = new QScrollArea(&critDlg);
+                QWidget *saWidget = new QWidget;
+                QVBoxLayout *rowsLayout = new QVBoxLayout(saWidget);
+                rowsLayout->addStretch(1);
+                sa->setWidget(saWidget);
+                sa->setWidgetResizable(true);
+                cvl->addWidget(sa);
+                
+                QCheckBox *chkAnother = new QCheckBox("Add another?", &critDlg);
+                cvl->addWidget(chkAnother);
+                
+                QDialogButtonBox *cbb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &critDlg);
+                cvl->addWidget(cbb);
+                
+                auto addRuleRow = [&]() {
+                    QWidget *rw = new QWidget;
+                    QHBoxLayout *rhl = new QHBoxLayout(rw);
+                    rhl->setContentsMargins(0,0,0,0);
+                    
+                    QComboBox *cbKind = new QComboBox(rw);
+                    cbKind->setObjectName("cbKind");
+                    cbKind->addItems({"Unique", "Same", "Blank"});
+                    
+                    QComboBox *cbTag = new QComboBox(rw);
+                    cbTag->setObjectName("cbTag");
+                    QStringList tags = {"BAND", "MODE", "GRIDSQUARE", "STATE", "COUNTY", "COUNTRY", "DXCC", "CALL", "VUCC_GRIDS"};
+                    if (this->m_stationAdifTags) {
+                        for(int i=0; i<this->m_stationAdifTags->count(); ++i) {
+                            QString t = this->m_stationAdifTags->item(i)->text().remove("<").remove(">").toUpper();
+                            if(!tags.contains(t) && !t.isEmpty()) 
+                                tags << t;
+                        }
+                    }
+                    cbTag->addItems(tags);
+                    
+                    QComboBox *cbIs = new QComboBox(rw);
+                    cbIs->setObjectName("cbIs");
+                    cbIs->addItems({"Equal to or more", "Equals"});
+                    
+                    QSpinBox *sbNum = new QSpinBox(rw);
+                    sbNum->setObjectName("sbNum");
+                    sbNum->setMinimum(1); sbNum->setMaximum(9999);
+                    
+                    QPushButton *delBtn = new QPushButton("X", rw);
+                    delBtn->setFixedWidth(30);
+                    QObject::connect(delBtn, &QPushButton::clicked, [rw]() {
+                        rw->deleteLater();
+                    });
+                    
+                    rhl->addWidget(cbKind);
+                    rhl->addWidget(cbTag);
+                    rhl->addWidget(cbIs);
+                    rhl->addWidget(sbNum);
+                    rhl->addWidget(delBtn);
+                    
+                    rowsLayout->insertWidget(rowsLayout->count() - 1, rw);
+                };
+                
+                addRuleRow();
+                
+                QObject::connect(chkAnother, &QCheckBox::stateChanged, [&](int state) {
+                    if (state == Qt::Checked) {
+                        addRuleRow();
+                        chkAnother->blockSignals(true);
+                        chkAnother->setChecked(false);
+                        chkAnother->blockSignals(false);
+                    }
+                });
+                
+                QObject::connect(cbb, &QDialogButtonBox::accepted, &critDlg, &QDialog::accept);
+                QObject::connect(cbb, &QDialogButtonBox::rejected, &critDlg, &QDialog::reject);
+                
+                if (critDlg.exec() == QDialog::Accepted) {
+                    QStringList generated;
+                    for (int i = 0; i < rowsLayout->count() - 1; ++i) {
+                        QWidget *rw = rowsLayout->itemAt(i)->widget();
+                        if (!rw) continue;
+                        QComboBox *cbK = rw->findChild<QComboBox*>("cbKind");
+                        QComboBox *cbT = rw->findChild<QComboBox*>("cbTag");
+                        QComboBox *cbI = rw->findChild<QComboBox*>("cbIs");
+                        QSpinBox *sbN = rw->findChild<QSpinBox*>("sbNum");
+                        if (cbK && cbT && cbI && sbN) {
+                            generated << QString("%1 <%2> %3 %4").arg(cbK->currentText(), cbT->currentText(), cbI->currentText()).arg(sbN->value());
+                        }
+                    }
+                    if (!generated.isEmpty()) {
+                        QString cur = xCriteria->toPlainText();
+                        if (!cur.isEmpty() && !cur.endsWith("\n")) cur += "\n";
+                        cur += generated.join("\n") + "\n";
+                        xCriteria->setPlainText(cur);
+                    }
+                }
+            };
+            
+            ClickEventFilter *ef = new ClickEventFilter(xCriteria);
+            ef->onClick = openRuleBuilder;
+            xCriteria->installEventFilter(ef);
+            
+            tabs->addTab(basicTab, "Basic"); tabs->addTab(advTab, "Advanced"); tabs->addTab(metaTab, "XML Meta");
+            
+            QWidget *allTab = new QWidget;
+            QVBoxLayout *allL = new QVBoxLayout(allTab);
+            QTableWidget *allTable = new QTableWidget();
+            allL->addWidget(allTable);
+            allTable->setColumnCount(2);
+            allTable->setHorizontalHeaderLabels({"Field Name", "Value"});
+            allTable->horizontalHeader()->setStretchLastSection(true);
+            allTable->verticalHeader()->setVisible(false);
+            
+            obj["isCategory"] = cIsCategory->isChecked();
+            obj["category"] = cbCategory->currentText();
+            obj["org"] = eOrg->text(); obj["name"] = eName->text(); obj["desc"] = eDesc->toPlainText(); obj["req"] = eReq->toPlainText(); obj["track"] = eTrack->toPlainText(); obj["url"] = eUrl->text();
+            obj["earnedByXML"] = eEarnedBy->text();
+            obj["renderMap"] = cRenderMap->isChecked();
+            obj["mapImage"] = eMapImage->text(); obj["maidenhead"] = cMaidenhead->isChecked();
+            obj["xmlAuthor"] = eXmlAuthor->text();
+            obj["xmlDateCreated"] = eXmlDate->text();
+            obj["xmlCriteria"] = eXmlCriteria->toPlainText();
+            
+            allTable->setRowCount(obj.keys().count());
+            int rr = 0;
+            for(auto it = obj.begin(); it != obj.end(); ++it) {
+                QString val = it.value().isBool() ? (it.value().toBool() ? "true" : "false") : it.value().toVariant().toString();
+                QTableWidgetItem *keyItem = new QTableWidgetItem(it.key());
+                keyItem->setFlags(keyItem->flags() & ~Qt::ItemIsEditable);
+                allTable->setItem(rr, 0, keyItem);
+                allTable->setItem(rr, 1, new QTableWidgetItem(val));
+                rr++;
+            }
+            tabs->addTab(allTable, "All Properties (Data Editor)");
+            
+            xl->addRow(tabs);
+            xl->addRow("Preview:", preview);
+            
+            QPushButton *copyBtn = new QPushButton("Copy Complete XML Data to Clipboard", &xmlDlg);
+            connect(copyBtn, &QPushButton::clicked, &xmlDlg, [getXmlStr]() {
+                QApplication::clipboard()->setText(getXmlStr());
+            });
+            
+            QPushButton *validateBtn = new QPushButton("Validate against XSD", &xmlDlg);
+            connect(validateBtn, &QPushButton::clicked, &xmlDlg, [getXmlStr, &xmlDlg]() {
+                #ifndef QT_NO_XMLPATTERNS
+                QXmlSchema schema;
+                schema.load(QUrl::fromLocalFile(QDir::currentPath() + "/qsl_layout.xsd"));
+                if (schema.isValid()) {
+                    QXmlSchemaValidator validator(schema);
+                    if (validator.validate(getXmlStr().toUtf8())) {
+                        QMessageBox::information(&xmlDlg, "Validation", "XML is valid according to schema.");
+                    } else {
+                        QMessageBox::warning(&xmlDlg, "Validation Failed", "XML spec sanity check failed!");
+                    }
+                } else {
+                    QMessageBox::critical(&xmlDlg, "Schema Error", "Could not load/parse qsl_layout.xsd.");
+                }
+                #else
+                QMessageBox::information(&xmlDlg, "Validation", "XmlPatterns support is missing, cannot validate XSD.");
+                #endif
+            });
+            
+            QHBoxLayout *blayout = new QHBoxLayout;
+            blayout->addWidget(validateBtn); blayout->addWidget(copyBtn);
+            xl->addRow(blayout);
+            
+            QDialogButtonBox *bb2 = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &xmlDlg);
+            connect(bb2, &QDialogButtonBox::accepted, &xmlDlg, &QDialog::accept);
+            connect(bb2, &QDialogButtonBox::rejected, &xmlDlg, &QDialog::reject);
+            xl->addRow(bb2);
+            
+            if (xmlDlg.exec() == QDialog::Accepted) {
+                // Collect custom fields from table
+                for(int r = 0; r < allTable->rowCount(); ++r) {
+                    if (allTable->item(r,0) && allTable->item(r,1)) {
+                        QString k = allTable->item(r,0)->text();
+                        QString v = allTable->item(r,1)->text();
+                        if (v == "true") obj[k] = true;
+                        else if (v == "false") obj[k] = false;
+                        else obj[k] = v;
+                    }
+                }
+                
+                eOrg->setText(xOrg->text());
+                eName->setText(xName->text());
+                eDesc->setText(xDesc->toPlainText());
+                eReq->setText(xReq->toPlainText());
+                eTrack->setText(xTrack->toPlainText());
+                eUrl->setText(xUrl->text());
+                eEarnedBy->setText(xEarnedBy->text());
+                eMapImage->setText(xMapImage->text());
+                cMaidenhead->setChecked(xMaidenhead->isChecked());
+                eXmlAuthor->setText(xAuthor->text());
+                eXmlDate->setText(xDate->text());
+                eXmlCriteria->setText(xCriteria->toPlainText());
+            }
+        });
+        
+        QPushButton *btnPopulate = new QPushButton("✨ COMICAL: POPULATE! ✨", &dlg);
+        QObject::connect(btnPopulate, &QPushButton::clicked, &dlg, [eOrg, eName, eDesc, eReq, eTrack, eUrl, eEarnedBy, eMapImage, cMaidenhead, eXmlAuthor, eXmlDate, eXmlCriteria, cbCategory, &dlg, &obj]() {
+            QSettings s(QCoreApplication::organizationName(), "Qwain");
+            QString defDir = s.value("users_unique_config_dir", QDir::homePath()).toString();
+            QString path = QFileDialog::getOpenFileName(&dlg, "Select Award XML to Populate", defDir, "XML Files (*.xml)");
+            
+            if (path.isEmpty() || !QFile::exists(path)) return;
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+            
+            QMap<QString, QString> fields;
+            QXmlStreamReader xml(&file);
+            QString currentElement;
+            QString criteriaRules;
+            while (!xml.atEnd() && !xml.hasError()) {
+                QXmlStreamReader::TokenType token = xml.readNext();
+                if (token == QXmlStreamReader::StartElement) {
+                    currentElement = xml.name().toString();
+                    if (currentElement == "AwardCriteria" && xml.attributes().hasAttribute("awardName")) {
+                        fields["awardName"] = xml.attributes().value("awardName").toString();
+                    }
+                } else if (token == QXmlStreamReader::Characters && !xml.isWhitespace()) {
+                    if (currentElement == "CriteriaRule") {
+                        criteriaRules += xml.text().toString() + "\n";
+                    } else if (!currentElement.isEmpty()) {
+                        fields[currentElement] += xml.text().toString();
+                    }
+                } else if (token == QXmlStreamReader::EndElement) {
+                    currentElement.clear();
+                }
+            }
+            
+            // Populating current fields directly!
+            for (auto it = fields.begin(); it != fields.end(); ++it) {
+                obj[it.key()] = it.value();
+            }
+            
+            if (fields.contains("org")) eOrg->setText(fields["org"]);
+            if (fields.contains("awardName")) eName->setText(fields["awardName"]);
+            else if (fields.contains("name")) eName->setText(fields["name"]);
+            if (fields.contains("desc")) eDesc->setText(fields["desc"]);
+            if (fields.contains("req")) eReq->setText(fields["req"]);
+            if (fields.contains("track")) eTrack->setText(fields["track"]);
+            if (fields.contains("url")) eUrl->setText(fields["url"]);
+            if (fields.contains("earnedByXML")) eEarnedBy->setText(fields["earnedByXML"]);
+            if (fields.contains("mapImage")) eMapImage->setText(fields["mapImage"]);
+            if (fields.contains("maidenhead")) cMaidenhead->setChecked(fields["maidenhead"].toLower() == "true");
+            if (fields.contains("Author")) eXmlAuthor->setText(fields["Author"]);
+            else if (fields.contains("author")) eXmlAuthor->setText(fields["author"]);
+            if (fields.contains("DateCreated")) eXmlDate->setText(fields["DateCreated"]);
+            else if (fields.contains("dateCreated")) eXmlDate->setText(fields["dateCreated"]);
+            if (!criteriaRules.trimmed().isEmpty()) eXmlCriteria->setText(criteriaRules);
+            else if (fields.contains("CriteriaDescription")) eXmlCriteria->setText(fields["CriteriaDescription"]);
+            else eXmlCriteria->setText("");
+            
+            if (fields.contains("IconImage")) {
+                QByteArray data = QByteArray::fromBase64(fields["IconImage"].toLatin1());
+                QString safeName = eName->text().replace(" ", "_").toLower();
+                safeName.remove(QRegularExpression("[^a-z0-9_]"));
+                safeName += ".png";
+                QFile f(safeName);
+                if (f.open(QIODevice::WriteOnly)) {
+                    f.write(data);
+                    f.close();
+                }
+            }
+            
+            QMessageBox::information(&dlg, "Populate", "Fields imported from XML.");
+        });
+        
+        l->addRow(btnPopulate);
+        l->addRow(cIsCategory);
+        l->addRow("Is Part Of Category:", cbCategory);
+        l->addRow("Organization:", eOrg); 
+        l->addRow("Name:", eName); 
+        l->addRow("Description:", eDesc); 
+        l->addRow("Requirements:", eReq); 
+        l->addRow("Tracking Info:", eTrack);
+        
+        QHBoxLayout *urlL = new QHBoxLayout;
+        urlL->addWidget(eUrl);
+        QPushButton *browseUrlBtn = new QPushButton("Browse...", &dlg);
+        QObject::connect(browseUrlBtn, &QPushButton::clicked, &dlg, [eUrl, &dlg]() {
+            QString file = QFileDialog::getOpenFileName(&dlg, "Select Image", "", "Images (*.png *.jpg *.jpeg *.svg *.gif)");
+            if (!file.isEmpty()) eUrl->setText(file);
+        });
+        urlL->addWidget(browseUrlBtn);
+        l->addRow("Image URL:", urlL);
+        
+        l->addRow("Earned By XML:", eEarnedBy);
+        l->addRow("Render Map?", cRenderMap);
+        l->addRow("Base Map:", baseMapLayout);
+        l->addRow("XML Author:", eXmlAuthor);
+        l->addRow("XML Date:", eXmlDate);
+        QHBoxLayout *xmlCritLayout = new QHBoxLayout;
+        xmlCritLayout->addWidget(eXmlCriteria);
+        QComboBox *cbTargetChoice = new QComboBox(&dlg);
+        cbTargetChoice->addItems({"QSOs", "Call", "User Entered Value"});
+        cbTargetChoice->setCurrentText(obj["awardTarget"].toString());
+        xmlCritLayout->addWidget(cbTargetChoice);
+        QPushButton *btnOpenRuleBuilder = new QPushButton("+", &dlg);
+        btnOpenRuleBuilder->setFixedWidth(30);
+        QObject::connect(btnOpenRuleBuilder, &QPushButton::clicked, openReqBuilder);
+        xmlCritLayout->addWidget(btnOpenRuleBuilder);
+        l->addRow("XML Criteria:", xmlCritLayout);
+        QPushButton *btnViewXml = new QPushButton("View XML", &dlg);
+        QObject::connect(btnViewXml, &QPushButton::clicked, &dlg, [eOrg, eName, eDesc, eReq, eTrack, eUrl, eEarnedBy, cRenderMap, eMapImage, cMaidenhead, eXmlAuthor, eXmlDate, eXmlCriteria, cIsCategory, cbCategory, &dlg, &obj]() {
+            QDialog xmlViewDlg(&dlg);
+            xmlViewDlg.setWindowTitle("View Award Data");
+            xmlViewDlg.resize(500, 600);
+            QVBoxLayout *vl = new QVBoxLayout(&xmlViewDlg);
+            QTextEdit *te = new QTextEdit(&xmlViewDlg);
+            te->setReadOnly(true);
+            
+            QString out;
+            out += "Organization: " + eOrg->text() + "\n";
+            out += "Name: " + eName->text() + "\n";
+            out += "Description: " + eDesc->toPlainText() + "\n";
+            out += "Requirements: " + eReq->toPlainText() + "\n";
+            out += "Tracking: " + eTrack->toPlainText() + "\n";
+            out += "URL: " + eUrl->text() + "\n";
+            out += "Earned By: " + eEarnedBy->text() + "\n";
+            out += "Render Map: " + QString(cRenderMap->isChecked() ? "Yes" : "No") + "\n";
+            out += "Map Image: " + eMapImage->text() + "\n";
+            out += "Use Default Base Map: " + QString(cMaidenhead->isChecked() ? "Yes" : "No") + "\n";
+            out += "XML Author: " + eXmlAuthor->text() + "\n";
+            out += "XML Date: " + eXmlDate->text() + "\n";
+            out += "XML Criteria:\n" + eXmlCriteria->toPlainText() + "\n";
+            out += "\n----- RAW JSON -----\n" + QJsonDocument(obj).toJson(QJsonDocument::Indented);
+            
+            te->setPlainText(out);
+            vl->addWidget(te);
+            QPushButton *okBtn = new QPushButton("OK", &xmlViewDlg);
+            vl->addWidget(okBtn);
+            QObject::connect(okBtn, &QPushButton::clicked, &xmlViewDlg, &QDialog::accept);
+            xmlViewDlg.exec();
+        });
+        
+        QStringList extraFields = { "OfficialName", "AdditionalName", "Mode", "OfficialDesignator", "Type", "Originator", "CompletionTrigger", "SiteURL", "ThumbnailURL", "CreatorName", "CreatorEmail", "POTAId", "POTAIndex", "WWFFId", "TypeOfPOTA", "POTALocation", "InCategory", "IconImage" };
+        QMap<QString, QTextEdit*> rightEdits;
+        
+        for (const QString &fn : extraFields) {
+            QTextEdit *te = new QTextEdit(obj[fn].toString(), rightPane);
+            te->setFixedHeight(60);
+            rl->addRow(fn + ":", te);
+            rightEdits[fn] = te;
+        }
+        
+        QPushButton *btnData = new QPushButton("Data", &dlg);
+        QObject::connect(btnData, &QPushButton::clicked, &dlg, [extraFields, rightEdits, eOrg, eName, eDesc, eReq, eTrack, eUrl, eEarnedBy, eMapImage, cMaidenhead, eXmlAuthor, eXmlDate, eXmlCriteria, cbCategory, &dlg]() {
+            QSettings s(QCoreApplication::organizationName(), "Qwain");
+            QString defDir = s.value("users_unique_config_dir", QDir::homePath()).toString();
+            QString path = QFileDialog::getOpenFileName(&dlg, "Select XML to Map Data", defDir, "XML Files (*.xml)");
+            if (path.isEmpty() || !QFile::exists(path)) return;
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+            
+            QMap<QString, QString> fields;
+            QXmlStreamReader xml(&file);
+            QString currentElement;
+            QString criteriaRules;
+            while (!xml.atEnd() && !xml.hasError()) {
+                QXmlStreamReader::TokenType token = xml.readNext();
+                if (token == QXmlStreamReader::StartElement) {
+                    currentElement = xml.name().toString();
+                    if (currentElement == "AwardCriteria" && xml.attributes().hasAttribute("awardName")) {
+                        fields["AwardName"] = xml.attributes().value("awardName").toString();
+                    }
+                } else if (token == QXmlStreamReader::Characters && !xml.isWhitespace()) {
+                    if (currentElement == "CriteriaRule") {
+                        criteriaRules += xml.text().toString() + "\n";
+                    } else if (!currentElement.isEmpty()) {
+                        fields[currentElement] += xml.text().toString();
+                    }
+                } else if (token == QXmlStreamReader::EndElement) {
+                    currentElement.clear();
+                }
+            }
+            if (!criteriaRules.isEmpty()) fields["ParsedCriteriaRules"] = criteriaRules;
+            
+            QDialog dataDlg(&dlg);
+            dataDlg.setWindowTitle("Map XML Data to Award Fields");
+            dataDlg.resize(900, 600);
+            QVBoxLayout *mainLay = new QVBoxLayout(&dataDlg);
+            QScrollArea *scroll = new QScrollArea(&dataDlg);
+            QWidget *scrollW = new QWidget;
+            QGridLayout *gl = new QGridLayout(scrollW);
+            scroll->setWidget(scrollW);
+            scroll->setWidgetResizable(true);
+            
+            gl->addWidget(new QLabel("<b>Award Field</b>"), 0, 0);
+            gl->addWidget(new QLabel("<b>Map From XML Field</b>"), 0, 1);
+            gl->addWidget(new QLabel("<b>Current Value</b>"), 0, 2);
+            gl->addWidget(new QLabel("<b>XML Data Value</b>"), 0, 3);
+            
+            QStringList xmlFieldNames = fields.keys();
+            xmlFieldNames.prepend("(Do Not Map)");
+            
+            struct FieldMapping {
+                QString label;
+                QWidget *targetWidget;
+                QComboBox *combo;
+                QLabel *valLabel;
+            };
+            QList<FieldMapping> mappings;
+            
+            auto addMappingRow = [&](const QString &lbl, QWidget *tgt, const QString &defaultXmlField) {
+                int r = gl->rowCount();
+                gl->addWidget(new QLabel(lbl), r, 0);
+                QComboBox *cb = new QComboBox;
+                cb->addItems(xmlFieldNames);
+                cb->setCurrentText(fields.contains(defaultXmlField) ? defaultXmlField : "(Do Not Map)");
+                gl->addWidget(cb, r, 1);
+                
+                QString curVal;
+                if (QLineEdit *le = qobject_cast<QLineEdit*>(tgt)) curVal = le->text();
+                else if (QTextEdit *te = qobject_cast<QTextEdit*>(tgt)) curVal = te->toPlainText();
+                else if (QCheckBox *chk = qobject_cast<QCheckBox*>(tgt)) curVal = chk->isChecked() ? "True" : "False";
+                
+                QLabel *curValLabel = new QLabel(curVal);
+                curValLabel->setWordWrap(true);
+                gl->addWidget(curValLabel, r, 2);
+                
+                QLabel *xmlValLabel = new QLabel;
+                xmlValLabel->setWordWrap(true);
+                // Truncate overly long values
+                QString initVal = fields.value(defaultXmlField);
+                if (initVal.length() > 500) initVal = initVal.left(500) + "...";
+                xmlValLabel->setText(fields.contains(defaultXmlField) ? initVal : "");
+                gl->addWidget(xmlValLabel, r, 3);
+                
+                QObject::connect(cb, &QComboBox::currentTextChanged, xmlValLabel, [xmlValLabel, fields](const QString &text) {
+                    if (text == "(Do Not Map)") {
+                        xmlValLabel->setText("");
+                    } else {
+                        QString v = fields.value(text);
+                        if (v.length() > 500) v = v.left(500) + "...";
+                        xmlValLabel->setText(v);
+                    }
+                });
+                
+                mappings.append({lbl, tgt, cb, xmlValLabel});
+            };
+            
+            addMappingRow("Organization", eOrg, "org");
+            addMappingRow("Name", eName, fields.contains("AwardName") ? "AwardName" : (fields.contains("awardName") ? "awardName" : "name"));
+            addMappingRow("Description", eDesc, "desc");
+            addMappingRow("Requirements", eReq, "req");
+            addMappingRow("Tracking", eTrack, "track");
+            addMappingRow("URL", eUrl, "url");
+            addMappingRow("Earned By", eEarnedBy, "earnedByXML");
+            addMappingRow("Map Image", eMapImage, "mapImage");
+            addMappingRow("Maidenhead", cMaidenhead, "maidenhead");
+            addMappingRow("Icon Image", rightEdits["IconImage"], "IconImage"); // Special handling for IconImage
+            addMappingRow("XML Author", eXmlAuthor, fields.contains("Author") ? "Author" : "author");
+            addMappingRow("XML Date created", eXmlDate, fields.contains("DateCreated") ? "DateCreated" : "dateCreated");
+            addMappingRow("XML Criteria", eXmlCriteria, fields.contains("ParsedCriteriaRules") ? "ParsedCriteriaRules" : "CriteriaDescription");
+            
+            for (const QString &fn : extraFields) {
+                if (fn != "IconImage") {
+                    addMappingRow(fn, rightEdits[fn], fields.contains(fn) ? fn : fn.toLower());
+                }
+            }
+            
+            mainLay->addWidget(scroll);
+            
+            QDialogButtonBox *bb = new QDialogButtonBox(QDialogButtonBox::Apply | QDialogButtonBox::Close, &dataDlg);
+            mainLay->addWidget(bb);
+            QObject::connect(bb, &QDialogButtonBox::rejected, &dataDlg, &QDialog::reject);
+            QObject::connect(bb, &QDialogButtonBox::clicked, &dataDlg, [&](QAbstractButton *btn) {
+                if (bb->standardButton(btn) == QDialogButtonBox::Apply || bb->standardButton(btn) == QDialogButtonBox::Ok) {
+                    for (const auto &m : mappings) {
+                        QString xmlF = m.combo->currentText();
+                        if (xmlF == "(Do Not Map)") continue;
+                        
+                        QString val = fields.value(xmlF);
+                        if (m.targetWidget) {
+                            if (QLineEdit *le = qobject_cast<QLineEdit*>(m.targetWidget)) le->setText(val);
+                            else if (QTextEdit *te = qobject_cast<QTextEdit*>(m.targetWidget)) te->setText(val);
+                            else if (QCheckBox *chk = qobject_cast<QCheckBox*>(m.targetWidget)) chk->setChecked(val.toLower() == "true");
+                        } 
+                        if (m.label == "Icon Image") {
+                            QByteArray data = QByteArray::fromBase64(val.toLatin1());
+                            QString safeName = eName->text().replace(" ", "_").toLower();
+                            safeName.remove(QRegularExpression("[^a-z0-9_]"));
+                            safeName += ".png";
+                            QFile f(safeName);
+                            if (f.open(QIODevice::WriteOnly)) {
+                                f.write(data);
+                                f.close();
+                            }
+                        }
+                    }
+                    QMessageBox::information(&dataDlg, "Mapped", "Fields updated from XML.");
+                }
+            });
+            
+            dataDlg.exec();
+        });
+        
+        QHBoxLayout *utilRow = new QHBoxLayout;
+        utilRow->addWidget(btnShowXml);
+        utilRow->addWidget(btnViewXml);
+        utilRow->addWidget(btnData);
+        utilRow->addStretch();
+        l->addRow("Tools:", utilRow);
+        QPushButton *conditionsBtn = new QPushButton("Conditions", &dlg);
+        connect(conditionsBtn, &QPushButton::clicked, &dlg, openReqBuilder);
+        
+        QHBoxLayout *btnRowLayout = new QHBoxLayout;
+        btnRowLayout->setContentsMargins(0, 0, 0, 0);
+        btnRowLayout->addWidget(recacheBtn);
+        btnRowLayout->addWidget(conditionsBtn);
+        btnRowLayout->addStretch();
+        
+        l->addRow(iconLab, btnRowLayout);
+        
+        mainLayout->addWidget(leftScroll);
+        mainLayout->addWidget(rightScroll);
+        
+        topLevelLayout->addLayout(mainLayout);
+        
+        QDialogButtonBox *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        topLevelLayout->addWidget(bb);
+        
+        dlg.resize(800, 600);
+        if (dlg.exec() == QDialog::Accepted) {
+            obj["isCategory"] = cIsCategory->isChecked();
+            obj["category"] = cbCategory->currentText();
+            obj["org"] = eOrg->text(); obj["name"] = eName->text(); obj["desc"] = eDesc->toPlainText(); obj["req"] = eReq->toPlainText(); obj["track"] = eTrack->toPlainText(); obj["url"] = eUrl->text();
+            obj["earnedByXML"] = eEarnedBy->text();
+            obj["renderMap"] = cRenderMap->isChecked();
+            obj["mapImage"] = eMapImage->text(); obj["maidenhead"] = cMaidenhead->isChecked();
+            obj["xmlAuthor"] = eXmlAuthor->text();
+            obj["xmlDateCreated"] = eXmlDate->text();
+            obj["xmlCriteria"] = eXmlCriteria->toPlainText();
+            obj["awardTarget"] = cbTargetChoice->currentText();
+            for (const QString &fn : extraFields) {
+                obj[fn] = rightEdits[fn]->toPlainText();
+            }
+            if (obj.contains("POTAId") && !obj["POTAId"].toString().trimmed().isEmpty()) {
+                obj["name"] = obj["POTAId"].toString().trimmed();
+            }
+            item->setData(Qt::UserRole, QString(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+            
+            if (cIsCategory->isChecked()) {
+                item->setText(obj["name"].toString());
+                item->setHidden(false);
+                if (item->listWidget() && item->listWidget() != m_stationCategories) {
+                    item->listWidget()->takeItem(item->listWidget()->row(item));
+                    m_stationCategories->addItem(item);
+                }
+            } else {
+                item->setText(QString("%1\n%2").arg(obj["org"].toString(), obj["name"].toString()));
+                if (!obj["category"].toString().isEmpty()) {
+                    item->setHidden(true);
+                } else {
+                    item->setHidden(false);
+                }
+                if (item->listWidget() && item->listWidget() == m_stationCategories) {
+                    item->listWidget()->takeItem(item->listWidget()->row(item));
+                    m_stationAwards->addItem(item);
+                }
+            }
+            loadItemIcon(item, obj);
+            
+            QToolTip::showText(dlg.mapToGlobal(dlg.rect().center()), "Re-Caching Image...", nullptr, QRect(), 3000);
+            
+            QString appDataDir = getAppDataDir();
+            QString awardName = obj["name"].toString();
+            QString fileBaseName = awardName;
+            fileBaseName.remove(QRegularExpression("[^a-zA-Z0-9_]"));
+            QString cachedMap = appDataDir + "/" + fileBaseName + "_map.png";
+            
+            QString srcMap;
+            if (obj["maidenhead"].toBool(false)) {
+                QSettings s(QCoreApplication::organizationName(), "Qwain");
+                s.beginGroup("Files");
+                srcMap = s.value("maidenheadImage", "").toString();
+                s.endGroup();
+            } else {
+                srcMap = obj["mapImage"].toString();
+            }
+            if (!srcMap.isEmpty() && QFile::exists(srcMap)) {
+                QPixmap p(srcMap);
+                if (!p.isNull()) {
+                    p.save(cachedMap);
+                }
+            }
+        } else if (item->text() == "New Award") {
+            delete item;
+        }
+    };
+    
+    connect(m_stationAwards, &QListWidget::itemDoubleClicked, this, [openEditDialog](QListWidgetItem *item) {
+        openEditDialog(item);
+    });
+    connect(m_stationCategories, &QListWidget::itemDoubleClicked, this, [openEditDialog](QListWidgetItem *item) {
+        openEditDialog(item);
+    });
+    connect(m_stationCategoryAwards, &QListWidget::itemDoubleClicked, this, [openEditDialog](QListWidgetItem *item) {
+        openEditDialog(item);
+    });
+    
+    connect(addAwBtn, &QPushButton::clicked, this, [this, openEditDialog]() {
+        QListWidgetItem *newItem = new QListWidgetItem("New Award", m_stationAwards);
+        QJsonObject obj; obj["org"] = "New Org"; obj["name"] = "New Award";
+        newItem->setData(Qt::UserRole, QString(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+        openEditDialog(newItem);
+    });
+    connect(rmAwBtn, &QPushButton::clicked, this, [this]() {
+        QList<QListWidgetItem*> selCatAwards = m_stationCategoryAwards->selectedItems();
+        QList<QListWidgetItem*> selAwards = m_stationAwards->selectedItems();
+        QList<QListWidgetItem*> selCats = m_stationCategories->selectedItems();
+        
+        QList<QPair<QListWidgetItem*, QListWidgetItem*>> targets;
+        QString targetName;
+
+        if (m_stationCategoryAwards->hasFocus() && !selCatAwards.isEmpty()) {
+            for (auto target : selCatAwards) {
+                QListWidgetItem *origTarget = nullptr;
+                void *origPtr = target->data(Qt::UserRole + 1).value<void*>();
+                if (origPtr) {
+                    origTarget = static_cast<QListWidgetItem*>(origPtr);
+                }
+                targets.append(qMakePair(target, origTarget));
+            }
+            targetName = "Awards";
+        } else if (m_stationAwards->hasFocus() && !selAwards.isEmpty()) {
+            for (auto origTarget : selAwards) {
+                targets.append(qMakePair((QListWidgetItem*)nullptr, origTarget));
+            }
+            targetName = "Awards";
+        } else if (m_stationCategories->hasFocus() && !selCats.isEmpty()) {
+            for (auto origTarget : selCats) {
+                targets.append(qMakePair((QListWidgetItem*)nullptr, origTarget));
+            }
+            targetName = "Categories";
+        } else {
+            // fallback
+            if (!selCatAwards.isEmpty()) {
+                for (auto target : selCatAwards) {
+                    QListWidgetItem *origTarget = nullptr;
+                    void *origPtr = target->data(Qt::UserRole + 1).value<void*>();
+                    if (origPtr) {
+                        origTarget = static_cast<QListWidgetItem*>(origPtr);
+                    }
+                    targets.append(qMakePair(target, origTarget));
+                }
+                targetName = "Awards";
+            } else if (!selAwards.isEmpty()) {
+                for (auto origTarget : selAwards) {
+                    targets.append(qMakePair((QListWidgetItem*)nullptr, origTarget));
+                }
+                targetName = "Awards";
+            } else if (!selCats.isEmpty()) {
+                for (auto origTarget : selCats) {
+                    targets.append(qMakePair((QListWidgetItem*)nullptr, origTarget));
+                }
+                targetName = "Categories";
+            }
+        }
+
+        if (!targets.isEmpty()) {
+            if (QMessageBox::question(this, "Remove", QString("Are you sure you want to remove the selected %1? This cannot be undone.").arg(targetName), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                for (const auto &pair : targets) {
+                    QListWidgetItem *target = pair.first;
+                    QListWidgetItem *origTarget = pair.second;
+                    if (target) delete target;
+                    if (origTarget) {
+                        if (targetName == "Categories") {
+                            QJsonObject catObj = QJsonDocument::fromJson(origTarget->data(Qt::UserRole).toString().toUtf8()).object();
+                            QString catName = catObj["name"].toString().trimmed();
+                            for (int i=0; i<m_stationAwards->count(); ++i) {
+                                QListWidgetItem *awItem = m_stationAwards->item(i);
+                                QJsonObject awObj = QJsonDocument::fromJson(awItem->data(Qt::UserRole).toString().toUtf8()).object();
+                                if (awObj["category"].toString().trimmed() == catName) {
+                                    awItem->setHidden(false); 
+                                }
+                            }
+                        }
+                        delete origTarget;
+                    }
+                }
+            }
+        }
+    });
+    connect(m_forcePrefetchBtn, &QPushButton::clicked, this, [=]() {
+        m_prefetchStatus->setText("Starting prefetch...");
+        m_prefetchQueue.clear();
+        for (int i=0; i<m_stationAwards->count(); ++i) {
+            m_prefetchQueue << m_stationAwards->item(i)->data(Qt::UserRole).toString();
+        }
+        processPrefetchQueue();
+    });
+    
+    connect(m_stationAwards, &QWidget::customContextMenuRequested, this, [this, openEditDialog](const QPoint &pos) {
+        QListWidgetItem *item = m_stationAwards->itemAt(pos);
+        if (!item) return;
+        QMenu menu(this);
+        QAction *editAct = menu.addAction("Edit properties...");
+        QAction *rmAct = menu.addAction("- Remove selected award(s)");
+        QAction *sel = menu.exec(m_stationAwards->mapToGlobal(pos));
+        if (sel == editAct) {
+            openEditDialog(item);
+        } else if (sel == rmAct) {
+            QList<QListWidgetItem*> selAwards = m_stationAwards->selectedItems();
+            if (!selAwards.contains(item)) {
+                selAwards.clear();
+                selAwards.append(item);
+            }
+            if (!selAwards.isEmpty()) {
+                if (QMessageBox::question(this, "Remove", QString("Are you sure you want to remove %1 Award(s)? This cannot be undone.").arg(selAwards.size()), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    for (auto target : selAwards) {
+                        delete target;
+                    }
+                }
+            }
+        }
+    });
+    
+    contentWidget->setEnabled(false);
+    overlayLayout->addWidget(contentWidget, 0, 0);
+    overlayLayout->addWidget(new UnderDevelopmentOverlay(page), 0, 0);
+    
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::processPrefetchQueue()
+{
+    if (m_prefetchQueue.isEmpty()) {
+        m_prefetchStatus->setText("Prefetch complete.");
+        return;
+    }
+    
+    QString awStr = m_prefetchQueue.takeFirst();
+    QJsonObject obj = QJsonDocument::fromJson(awStr.toUtf8()).object();
+    QString urlStr = obj["url"].toString();
+    QString name = obj["name"].toString();
+    QString safeName = name;
+    safeName = safeName.replace(" ", "_").toLower();
+    safeName.remove(QRegularExpression("[^a-z0-9_]"));
+    safeName += ".png";
+    
+    if (urlStr.isEmpty() || QFile::exists(safeName)) {
+        // Skip if no URL or already cached
+        QTimer::singleShot(50, this, &ConfigDialog::processPrefetchQueue);
+        return;
+    }
+    
+    m_prefetchStatus->setText(QString("Fetching: %1...").arg(name));
+    
+    QNetworkRequest req;
+    req.setUrl(QUrl(urlStr));
+    req.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0");
+    
+    QNetworkReply *reply = m_netManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, safeName, name]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            // Since some are youtube, forums, etc., they might be HTML.
+            // But we will just try to save as .png and if it's invalid, QPixmap won't load it.
+            // Ideally we'd parse HTML and find imgs, but let's just write the data.
+            // Or better, only save if contentType is image, but the user said "use url descriptor to cache the image".
+            // Since we can't reliably parse arbitrary sites, let's just save whatever we get if it looks imagey.
+            QFile f(safeName);
+            if (f.open(QIODevice::WriteOnly)) {
+                f.write(data);
+                f.close();
+            }
+            m_prefetchStatus->setText(QString("Success for %1").arg(name));
+        } else {
+            m_prefetchStatus->setText(QString("Failed for %1: %2").arg(name, reply->errorString()));
+        }
+        reply->deleteLater();
+        QTimer::singleShot(2000, this, &ConfigDialog::processPrefetchQueue);
+    });
+}
+
+void ConfigDialog::createDebugPage()
+{
+    QWidget *page = new QWidget;
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    
+    QLabel *lblDesc = new QLabel(
+        "If you are here, you are either curious about what is in here, or something bad has happened.  Below is the technical debug information to send back for analysis.  There is absolutely nothing identifiable, in this debug information, just nerd stuff needed to help resolve the problem.  I care as much as you do about privacy. - 73  W4DJF"
+    );
+    lblDesc->setWordWrap(true);
+    layout->addWidget(lblDesc);
+    
+    m_debugDataEdit = new QTextEdit(this);
+    m_debugDataEdit->setReadOnly(true);
+    
+    extern QString g_latestDebugCapture;
+    QString debugText = g_latestDebugCapture;
+    if (debugText.isEmpty()) {
+        debugText = "No Captured Data";
+    }
+    m_debugDataEdit->setText(debugText);
+    layout->addWidget(m_debugDataEdit, 1);
+    
+    QLabel *lblProb = new QLabel("Describe problem, and how to replicate, if applicable.");
+    layout->addWidget(lblProb);
+    
+    m_debugDescEdit = new QTextEdit(this);
+    layout->addWidget(m_debugDescEdit, 1);
+    
+    QHBoxLayout *btnLayout = new QHBoxLayout;
+    
+    QPushButton *btnDelete = new QPushButton("Delete Debug Information");
+    connect(btnDelete, &QPushButton::clicked, this, [this]() {
+        extern QString g_latestDebugCapture;
+        g_latestDebugCapture.clear();
+        m_debugDataEdit->setText("No Captured Data");
+    });
+    
+    QPushButton *btnReport = new QPushButton("Preview & Send Report...");
+    connect(btnReport, &QPushButton::clicked, this, &ConfigDialog::processDebugReport);
+    btnLayout->addStretch();
+    btnLayout->addWidget(btnDelete);
+    btnLayout->addWidget(btnReport);
+    layout->addLayout(btnLayout);
+    
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::processDebugReport()
+{
+    QString userInput = m_debugDescEdit->toPlainText();
+    QString debugData = m_debugDataEdit->toPlainText();
+    
+    QString report = "QSLMonitor Debug Data:\n\n" + userInput + "\n\n" + debugData;
+    
+    QDialog *previewDlg = new QDialog(this);
+    previewDlg->setWindowTitle("Preview Debug Report");
+    previewDlg->resize(600, 400);
+    QVBoxLayout *layout = new QVBoxLayout(previewDlg);
+    
+    QTextEdit *previewEdit = new QTextEdit(previewDlg);
+    previewEdit->setReadOnly(true);
+    previewEdit->setPlainText(report);
+    layout->addWidget(previewEdit);
+    
+    QHBoxLayout *btnL = new QHBoxLayout;
+    QPushButton *okSend = new QPushButton("OK to Send");
+    QPushButton *cancel = new QPushButton("Cancel");
+    btnL->addStretch();
+    btnL->addWidget(okSend);
+    btnL->addWidget(cancel);
+    layout->addLayout(btnL);
+    
+    connect(cancel, &QPushButton::clicked, previewDlg, &QDialog::reject);
+    connect(okSend, &QPushButton::clicked, [previewDlg, report]() {
+        QApplication::clipboard()->setText(report);
+        QMessageBox::information(previewDlg, "Copy Status", "Debug report copied to clipboard.\n\nPlease open your email client and send it to: issues@w4djf.net");
+        previewDlg->accept();
+    });
+    
+    previewDlg->exec();
+}
+
+void ConfigDialog::updatePrintersList() {
+    m_printersList->clear();
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    QStringList knownPrinters = settings.value("KnownWifiPrinters").toStringList();
+    if (knownPrinters.isEmpty()) {
+        QListWidgetItem *item = new QListWidgetItem("No printers defined.", m_printersList);
+    } else {
+        for (const QString &kp : knownPrinters) {
+            QListWidgetItem *item = new QListWidgetItem(kp, m_printersList);
+            QPixmap pix(64, 64);
+            pix.fill(Qt::transparent);
+            QPainter p(&pix);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(QPen(Qt::darkGray, 2));
+            p.setBrush(Qt::lightGray);
+            if (kp.toLower().contains("inkjet") || kp.toLower().contains("ink")) {
+                p.drawRect(10, 20, 44, 30);
+                p.setBrush(Qt::white);
+                p.drawRect(20, 10, 24, 10);
+                p.setBrush(Qt::cyan); p.drawEllipse(15, 30, 8, 8);
+                p.setBrush(Qt::magenta); p.drawEllipse(25, 30, 8, 8);
+                p.setBrush(Qt::yellow); p.drawEllipse(35, 30, 8, 8);
+            } else {
+                p.drawRect(10, 20, 44, 25);
+                p.setBrush(Qt::white);
+                p.drawRect(20, 10, 24, 10);
+                p.drawRect(15, 45, 34, 15);
+                p.setPen(Qt::black);
+                p.drawLine(20, 50, 44, 50);
+                p.drawLine(20, 55, 44, 55);
+            }
+            item->setIcon(QIcon(pix));
+        }
+    }
+}
+
+void ConfigDialog::createPrintersPage()
+{
+    QWidget *page = new QWidget;
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    
+    layout->addWidget(new QLabel("<b>Defined WiFi Printers</b>"));
+    
+    m_printersList = new QListWidget(this);
+    m_printersList->setViewMode(QListView::IconMode);
+    m_printersList->setIconSize(QSize(64, 64));
+    m_printersList->setResizeMode(QListView::Adjust);
+    layout->addWidget(m_printersList);
+    
+    m_printersList->setContextMenuPolicy(Qt::CustomContextMenu);
+    auto showProperties = [this](QListWidgetItem *item) {
+        if (!item || item->text() == "No printers defined.") return;
+        QString fullText = item->text();
+        QString dest = fullText.split(" ").first().trimmed();
+        
+        QDialog propsDlg(this);
+        propsDlg.setWindowTitle(QString("Printer Properties - %1").arg(dest));
+        propsDlg.resize(500, 400);
+        QVBoxLayout *layout = new QVBoxLayout(&propsDlg);
+        
+        QTabWidget *tabWidget = new QTabWidget(&propsDlg);
+        layout->addWidget(tabWidget);
+        
+        QProcess proc;
+        proc.start("lpoptions", QStringList() << "-p" << dest << "-l");
+        proc.waitForFinished(3000);
+        QString output = proc.readAllStandardOutput();
+        if (output.trimmed().isEmpty()) {
+            QLabel *lbl = new QLabel("No CUPS options found for this printer.\n\nCould be an IP/Network printer not explicitly added to CUPS.", &propsDlg);
+            lbl->setAlignment(Qt::AlignCenter);
+            layout->addWidget(lbl);
+            
+            QDialogButtonBox *btnBox = new QDialogButtonBox(QDialogButtonBox::Close, &propsDlg);
+            connect(btnBox, &QDialogButtonBox::rejected, &propsDlg, &QDialog::reject);
+            layout->addWidget(btnBox);
+        } else {
+            QStringList lines = output.split('\n', Qt::SkipEmptyParts);
+            QMap<QString, QVBoxLayout*> tabLayouts;
+            QMap<QString, QComboBox*> optionCombos;
+            
+            for (const QString &line : lines) {
+                int colonIdx = line.indexOf(':');
+                if (colonIdx == -1) continue;
+                QString optDef = line.left(colonIdx).trimmed();
+                QString optChoicesStr = line.mid(colonIdx + 1).trimmed();
+                
+                QString optKey = optDef.split('/').first();
+                QString optName = optDef.contains('/') ? optDef.split('/').last() : optKey;
+                
+                QString tabName = "Other";
+                QString kLower = optKey.toLower();
+                if (kLower.contains("page") || kLower.contains("media") || kLower.contains("paper") || kLower.contains("tray") || kLower.contains("slot")) {
+                    tabName = "Paper / Media";
+                } else if (kLower.contains("resolution") || kLower.contains("quality") || kLower.contains("color") || kLower.contains("dpi") || kLower.contains("printoutmode")) {
+                    tabName = "Quality / Color";
+                } else if (kLower.contains("duplex") || kLower.contains("sides") || kLower.contains("collate") || kLower.contains("copies")) {
+                    tabName = "Layout / Finishing";
+                }
+                
+                if (!tabLayouts.contains(tabName)) {
+                    QWidget *w = new QWidget;
+                    QVBoxLayout *l = new QVBoxLayout(w);
+                    l->setAlignment(Qt::AlignTop);
+                    tabLayouts.insert(tabName, l);
+                    
+                    QScrollArea *sa = new QScrollArea;
+                    sa->setWidgetResizable(true);
+                    sa->setWidget(w);
+                    tabWidget->addTab(sa, tabName);
+                }
+                
+                QHBoxLayout *row = new QHBoxLayout;
+                row->addWidget(new QLabel(optName + ":"));
+                
+                QComboBox *combo = new QComboBox;
+                QStringList choicesList = optChoicesStr.split(" ", Qt::SkipEmptyParts);
+                int currentIndex = 0;
+                int idx = 0;
+                for (QString choice : choicesList) {
+                    if (choice.startsWith('*')) {
+                        choice = choice.remove(0, 1);
+                        currentIndex = idx;
+                    }
+                    combo->addItem(choice);
+                    idx++;
+                }
+                combo->setCurrentIndex(currentIndex);
+                
+                row->addWidget(combo);
+                tabLayouts[tabName]->addLayout(row);
+                optionCombos.insert(optKey, combo);
+            }
+            
+            QDialogButtonBox *btnBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &propsDlg);
+            QDialog* pDlg = &propsDlg;
+            connect(btnBox, &QDialogButtonBox::accepted, [optionCombos, dest, pDlg]() {
+                for (auto it = optionCombos.begin(); it != optionCombos.end(); ++it) {
+                    QString optKey = it.key();
+                    QComboBox *c = it.value();
+                    QString val = c->currentText();
+                    
+                    QProcess pSet;
+                    pSet.start("lpoptions", QStringList() << "-p" << dest << "-o" << QString("%1=%2").arg(optKey, val));
+                    pSet.waitForFinished();
+                }
+                pDlg->accept();
+            });
+            connect(btnBox, &QDialogButtonBox::rejected, &propsDlg, &QDialog::reject);
+            layout->addWidget(btnBox);
+        }
+        
+        propsDlg.exec();
+    };
+
+    connect(m_printersList, &QListWidget::itemDoubleClicked, this, showProperties);
+    connect(m_printersList, &QListWidget::customContextMenuRequested, this, [this, showProperties](const QPoint &pos) {
+        QListWidgetItem *item = m_printersList->itemAt(pos);
+        if (!item || item->text() == "No printers defined.") return;
+        QMenu menu(this);
+        QAction *renameAction = menu.addAction("Rename Printer...");
+        QAction *propAction = menu.addAction("Properties / Settings...");
+        QAction *selected = menu.exec(m_printersList->mapToGlobal(pos));
+        if (selected == propAction) {
+            showProperties(item);
+        } else if (selected == renameAction) {
+            bool ok;
+            QString newName = QInputDialog::getText(this, "Rename Printer", "Enter new name, format should be 'TARGET (Friendly Name)':", QLineEdit::Normal, item->text(), &ok);
+            if (ok && !newName.isEmpty()) {
+                QString oldName = item->text();
+                QSettings settings(QCoreApplication::organizationName(), "Qwain");
+                QStringList knownPrinters = settings.value("KnownWifiPrinters").toStringList();
+                int idx = knownPrinters.indexOf(oldName);
+                if (idx != -1) {
+                    knownPrinters[idx] = newName;
+                    settings.setValue("KnownWifiPrinters", knownPrinters);
+                    updatePrintersList();
+                }
+            }
+        }
+    });
+
+    updatePrintersList();
+    
+    QHBoxLayout *btnL = new QHBoxLayout;
+    
+    auto createBtnIcon = [](const QString &type) {
+        QPixmap pix(48, 48);
+        pix.fill(Qt::transparent);
+        QPainter p(&pix);
+        p.setRenderHint(QPainter::Antialiasing);
+        
+        if (type == "test") {
+            p.setPen(QPen(Qt::darkGray, 2)); p.setBrush(Qt::white);
+            p.drawRect(12, 6, 24, 36);
+            p.setPen(QPen(Qt::gray, 2));
+            p.drawLine(16, 12, 32, 12);
+            p.drawLine(16, 16, 32, 16);
+            p.drawLine(16, 20, 32, 20);
+            p.setPen(QPen(Qt::blue, 2));
+            p.drawLine(16, 28, 28, 28);
+            return QIcon(pix);
+        }
+
+        // Draw printer base for add/wifi/remove
+        p.setPen(QPen(Qt::darkGray, 2)); p.setBrush(Qt::lightGray);
+        p.drawRect(8, 15, 32, 16); // main body
+        p.setBrush(Qt::white);
+        p.drawRect(16, 8, 16, 7); // paper tray
+        
+        // Output tray
+        p.drawRect(12, 31, 24, 10);
+        p.setPen(QPen(Qt::black, 1));
+        p.drawLine(16, 35, 32, 35);
+        p.drawLine(16, 38, 32, 38);
+
+        if (type == "add") {
+            p.setPen(QPen(Qt::green, 4));
+            p.drawLine(24, 18, 24, 28);
+            p.drawLine(19, 23, 29, 23);
+        } else if (type == "wifi") {
+            p.setPen(QPen(Qt::blue, 2));
+            p.drawArc(19, 18, 10, 10, 45*16, 90*16);
+            p.drawArc(16, 15, 16, 16, 45*16, 90*16);
+            p.drawArc(13, 12, 22, 22, 45*16, 90*16);
+        } else if (type == "remove") {
+            p.setPen(QPen(Qt::red, 4));
+            p.drawLine(18, 23, 30, 23);
+        }
+        
+        return QIcon(pix);
+    };
+
+    QToolButton *addBtn = new QToolButton(this);
+    addBtn->setText("Add Printer");
+    addBtn->setIcon(createBtnIcon("add"));
+    addBtn->setIconSize(QSize(48, 48));
+    addBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+
+    QToolButton *findBtn = new QToolButton(this);
+    findBtn->setText("Find Printer");
+    findBtn->setIcon(createBtnIcon("wifi"));
+    findBtn->setIconSize(QSize(48, 48));
+    findBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+
+    QToolButton *rmBtn = new QToolButton(this);
+    rmBtn->setText("Remove Printer");
+    rmBtn->setIcon(createBtnIcon("remove"));
+    rmBtn->setIconSize(QSize(48, 48));
+    rmBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+
+    QToolButton *testPrintBtn = new QToolButton(this);
+    testPrintBtn->setText("Print Test Page");
+    testPrintBtn->setIcon(createBtnIcon("test"));
+    testPrintBtn->setIconSize(QSize(48, 48));
+    testPrintBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    
+    connect(addBtn, &QToolButton::clicked, this, [this]() {
+        bool ok;
+        QString ip = QInputDialog::getText(this, "New WiFi Printer", "Enter Printer IP Address or URL (e.g. ipps://server/ipp/print):", QLineEdit::Normal, "", &ok);
+        if (ok && !ip.isEmpty()) {
+            QSettings settings(QCoreApplication::organizationName(), "Qwain");
+            QStringList knownPrinters = settings.value("KnownWifiPrinters").toStringList();
+            
+            bool exists = false;
+            for (const QString &kp : knownPrinters) {
+                QString dest = kp.split(" ").first().trimmed();
+                if (dest == ip || dest.contains("//" + ip + ":") || dest.contains("//" + ip + "/") || dest.endsWith("//" + ip)) { 
+                    exists = true; 
+                    break; 
+                }
+            }
+            if (!exists) {
+                QString name = getPrinterName(ip);
+                knownPrinters.append(name);
+                settings.setValue("KnownWifiPrinters", knownPrinters);
+                updatePrintersList();
+            }
+        }
+    });
+    
+    connect(rmBtn, &QToolButton::clicked, this, [this]() {
+        if (!m_printersList->currentItem() || m_printersList->currentItem()->text() == "No printers defined.") return;
+        QString ip = m_printersList->currentItem()->text();
+        if (QMessageBox::question(this, "Remove Printer", "Are you sure you want to remove " + ip + "?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+            QSettings settings(QCoreApplication::organizationName(), "Qwain");
+            QStringList knownPrinters = settings.value("KnownWifiPrinters").toStringList();
+            knownPrinters.removeAll(ip);
+            settings.setValue("KnownWifiPrinters", knownPrinters);
+            updatePrintersList();
+        }
+    });
+
+    connect(testPrintBtn, &QToolButton::clicked, this, [this]() {
+        if (!m_printersList->currentItem() || m_printersList->currentItem()->text() == "No printers defined.") return;
+        QString ip = m_printersList->currentItem()->text();
+        if (ip.contains(" ")) {
+            ip = ip.split(" ").first().trimmed();
+        }
+        
+        QPrinter printer(QPrinter::HighResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setOutputFileName("config_test_page.pdf");
+        
+        QPainter painter(&printer);
+        painter.setFont(QFont("Arial", 16, QFont::Bold));
+        painter.drawText(200, 400, "ADIF Monitor - Printer Test Page");
+        
+        painter.setFont(QFont("Arial", 12));
+        QDateTime now = QDateTime::currentDateTime();
+        int y = 600;
+        int step = 150;
+        painter.drawText(200, y, "Date/Time: " + QLocale().toString(now, QLocale::LongFormat)); y += step;
+        painter.drawText(200, y, "Printer target: " + ip); y += step;
+        
+        QProcess unameInfo;
+        unameInfo.start("uname", QStringList() << "-a");
+        unameInfo.waitForFinished();
+        QString sysInfo = unameInfo.readAllStandardOutput().trimmed();
+        if (sysInfo.isEmpty()) {
+            sysInfo = "Windows (or OS info not available via uname)";
+        }
+        painter.drawText(200, y, "System: " + sysInfo); y += step;
+        painter.drawText(200, y, "Program Version: adif_gui (working version)");
+        
+        painter.end();
+        
+        // Print it via lp
+        QProcess lpProc;
+        if (ip.startsWith("ipp://") || ip.startsWith("ipps://") || ip.startsWith("http://") || ip.startsWith("https://") || ip.count('.') == 3) {
+            QString host = ip;
+            if (host.contains("://")) {
+                host = QUrl(host).host();
+            }
+            lpProc.start("lp", QStringList() << "-h" << host + ":631" << "-o" << "raw" << "config_test_page.pdf");
+        } else {
+            lpProc.start("lp", QStringList() << "-d" << ip << "config_test_page.pdf");
+        }
+        lpProc.waitForFinished();
+        int ret = lpProc.exitCode();
+        if (lpProc.exitStatus() == QProcess::NormalExit && ret == 0) {
+            QMessageBox::information(this, "Print", "Test Page successfully sent via lp.");
+        } else {
+            QString errOutput = lpProc.readAllStandardError();
+            if (errOutput.isEmpty()) errOutput = "Process failed or could not be found.";
+            QMessageBox::critical(this, "Error", "Error sending test page:\n" + errOutput);
+        }
+    });
+
+    connect(findBtn, &QToolButton::clicked, this, [this]() {
+        QProgressDialog pd("Searching for WiFi printers via mDNS and CUPS...", "Cancel", 0, 0, this);
+        pd.setWindowModality(Qt::WindowModal);
+        pd.setCancelButton(nullptr);
+        pd.show();
+        QCoreApplication::processEvents();
+
+        QString out;
+        QStringList protocols = {"_pdl-datastream._tcp", "_printer._tcp", "_ipp._tcp", "_ipps._tcp", "_http._tcp"};
+        for (const QString &proto : protocols) {
+            QProcess proc;
+            proc.start("avahi-browse", QStringList() << "-rtp" << proto);
+            proc.waitForFinished(2000);
+            out += proc.readAllStandardOutput();
+            out += "\n";
+            QCoreApplication::processEvents();
+        }
+
+        // Also query CUPS
+        QProcess lpinfo;
+        lpinfo.start("lpinfo", QStringList() << "-v");
+        lpinfo.waitForFinished(3000);
+        QString lpinfoOut = lpinfo.readAllStandardOutput();
+
+        QProcess lpstat;
+        lpstat.start("lpstat", QStringList() << "-a");
+        lpstat.waitForFinished();
+        QString lpstatOut = lpstat.readAllStandardOutput();
+        
+        pd.close();
+
+        QStringList ipsFound;
+        QStringList lines = out.split('\n');
+        for (const QString &line : lines) {
+            QStringList parts = line.split(';');
+            if (parts.size() >= 8 && parts[0] == "=") {
+                QString ip = parts[7];
+                if (!ipsFound.contains(ip)) {
+                    ipsFound.append(ip);
+                }
+            }
+        }
+        
+        QStringList lpLines = lpinfoOut.split('\n');
+        for (const QString &line : lpLines) {
+            if (line.startsWith("network ")) {
+                QString uri = line.mid(8).trimmed(); // Extract URI
+                if (uri.contains("://") && !ipsFound.contains(uri)) {
+                    ipsFound.append(uri);
+                }
+            }
+        }
+
+        // Add local configured CUPS queues
+        for (const QString &line : lpstatOut.split('\n')) {
+            if (line.contains(" accepting requests")) {
+                QString queue = line.section(" ", 0, 0);
+                if (!ipsFound.contains(queue)) {
+                    ipsFound.append(queue);
+                }
+            }
+        }
+
+        if (ipsFound.isEmpty()) {
+            QMessageBox::information(this, "Find WiFi Printer", "No printers found on the local network.");
+        } else {
+            // resolve names first so the list is nice
+            pd.setLabelText("Resolving printer names...");
+            pd.show();
+            QStringList displayList;
+            for (const QString &ip : ipsFound) {
+                QCoreApplication::processEvents();
+                displayList.append(getPrinterName(ip));
+            }
+            pd.close();
+
+            bool ok;
+            QString choice = QInputDialog::getItem(this, "Select Printer", "Printers found:", displayList, 0, false, &ok);
+            if (ok && !choice.isEmpty()) {
+                QSettings settings(QCoreApplication::organizationName(), "Qwain");
+                QStringList knownPrinters = settings.value("KnownWifiPrinters").toStringList();
+                QString ip = choice.split(" ").first();
+                bool exists = false;
+                for (const QString &kp : knownPrinters) {
+                    QString dest = kp.split(" ").first().trimmed();
+                    if (dest == ip || dest.contains("//" + ip + ":") || dest.contains("//" + ip + "/") || dest.endsWith("//" + ip)) { 
+                        exists = true; 
+                        break; 
+                    }
+                }
+                if (!exists) {
+                    knownPrinters.append(choice);
+                    settings.setValue("KnownWifiPrinters", knownPrinters);
+                    updatePrintersList();
+                }
+            }
+        }
+    });
+    
+    btnL->addWidget(addBtn);
+    btnL->addWidget(findBtn);
+    btnL->addWidget(testPrintBtn);
+    btnL->addWidget(rmBtn);
+    btnL->addStretch();
+    layout->addLayout(btnL);
+
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    bool autoScanActive = settings.value("PrinterAutoScan", true).toBool();
+    QPushButton *autoScanBtn = new QPushButton("New Printer Detection " + QString(autoScanActive ? "ACTIVE" : "NOT ACTIVE"));
+    autoScanBtn->setStyleSheet(autoScanActive ? "background-color: lightgreen; font-weight: bold;" : "background-color: lightcoral; font-weight: bold;");
+    connect(autoScanBtn, &QPushButton::clicked, this, [this, autoScanBtn]() {
+        QSettings settings(QCoreApplication::organizationName(), "Qwain");
+        bool active = settings.value("PrinterAutoScan", true).toBool();
+        active = !active;
+        settings.setValue("PrinterAutoScan", active);
+        autoScanBtn->setText("New Printer Detection " + QString(active ? "ACTIVE" : "NOT ACTIVE"));
+        autoScanBtn->setStyleSheet(active ? "background-color: lightgreen; font-weight: bold;" : "background-color: lightcoral; font-weight: bold;");
+    });
+    layout->addWidget(autoScanBtn);
+    
+    m_pagesWidget->addWidget(page);
+}
+
+void ConfigDialog::chooseSkinColor()
+{
+    StyleDialog dlg(QFont(), QColor(m_selectedColor), true, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_selectedColor = dlg.selectedColor().name();
+        m_currentColorLabel->setText(m_selectedColor);
+        updateUIPreview();
+    }
+}
+
+void ConfigDialog::testQrzLogin()
+{
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    settings.beginGroup("Credentials");
+    settings.setValue("username", m_qrzUserEdit->text());
+    settings.setValue("password", m_qrzPassEdit->text());
+    settings.setValue("qrzApiKey", m_qrzApiKeyEdit->text());
+    settings.endGroup();
+    
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->testQrzLogin();
+}
+
+void ConfigDialog::showSeed()
+{
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) {
+        QString seed = mw->getQrzSessionKey();
+        QMessageBox::information(this, "QRZ Session Data", "Session Key: " + (seed.isEmpty() ? "Not connected or initialized" : seed));
+    }
+}
+
+void ConfigDialog::prepNewLogfile()
+{
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->prepareNewAdi();
+}
+
+void ConfigDialog::forceSyncLogfile()
+{
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->forceSyncQrzLog();
+}
+
+void ConfigDialog::startMailCheck()
+{
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->startQslMailCheck();
+}
+
+void ConfigDialog::feed1RefreshNow() {
+    applySettings();
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->updateFeed1();
+}
+
+void ConfigDialog::feed2RefreshNow() {
+    applySettings();
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->updateFeed2();
+}
+
+void ConfigDialog::feed3RefreshNow() {
+    applySettings();
+    MainWindow *mw = qobject_cast<MainWindow*>(parentWidget());
+    if (mw) mw->updateFeed3();
+}
+
+void ConfigDialog::applySettings()
+{
+    QSettings settings(QCoreApplication::organizationName(), "Qwain");
+    
+    settings.setValue("Station/Callsign", m_stationCallsign->text());
+    settings.setValue("Station/Grid", m_gridEdit->text());
+    QStringList radios;
+    for(int i=0; i<m_stationRadios->count(); ++i) radios << m_stationRadios->item(i)->text();
+    settings.setValue("Station/Radios", radios);
+    QStringList antennas;
+    for(int i=0; i<m_stationAntennas->count(); ++i) antennas << m_stationAntennas->item(i)->text();
+    settings.setValue("Station/Antennas", antennas);
+    QStringList bands;
+    for(int i=0; i<m_stationBands->count(); ++i) bands << m_stationBands->item(i)->text();
+    settings.setValue("Station/Bands", bands);
+    QStringList checks;
+    for(int i=0; i<m_stationChecks->count(); ++i) checks << m_stationChecks->item(i)->text();
+    settings.setValue("Station/Checks", checks);
+    QStringList adifTags;
+    for (int i=0; i<m_stationAdifTags->count(); ++i) adifTags << m_stationAdifTags->item(i)->text();
+    settings.setValue("Station/AdifTags", adifTags);
+
+    QStringList awardsStrList;
+    for (int i=0; i<m_stationAwards->count(); ++i) {
+        QString awStr = m_stationAwards->item(i)->data(Qt::UserRole).toString();
+        awardsStrList << awStr;
+    }
+    for (int i=0; i<m_stationCategories->count(); ++i) {
+        QString awStr = m_stationCategories->item(i)->data(Qt::UserRole).toString();
+        awardsStrList << awStr;
+    }
+    settings.setValue("Station/Awards", awardsStrList);
+
+    settings.beginGroup("Network");
+    settings.setValue("protocol", m_protocolCombo->currentText());
+    settings.setValue("ip", m_ipEdit->text());
+    settings.setValue("port", m_portSpin->value());
+    settings.endGroup();
+    
+    settings.beginGroup("Credentials");
+    settings.setValue("username", m_qrzUserEdit->text());
+    settings.setValue("password", m_qrzPassEdit->text());
+    settings.setValue("qrzApiKey", m_qrzApiKeyEdit->text());
+    settings.setValue("lotwUser", m_lotwUserEdit->text());
+    settings.setValue("lotwPass", m_lotwPassEdit->text());
+    settings.setValue("clublogEmail", m_clublogEmailEdit->text());
+    settings.setValue("clublogCall", m_clublogCallEdit->text());
+    settings.setValue("clublogPass", m_clublogPassEdit->text());
+    settings.setValue("eqslUser", m_eqslUserEdit->text());
+    settings.setValue("eqslPass", m_eqslPassEdit->text());
+    settings.endGroup();
+    
+    settings.beginGroup("Feeds");
+    settings.setValue("feed1Enabled", m_feed1Check->isChecked());
+    settings.setValue("feed1Url", m_feed1UrlEdit->text());
+    settings.setValue("feed1Refresh", m_feed1RefreshCombo->currentText());
+    settings.setValue("feed2Enabled", m_feed2Check->isChecked());
+    settings.setValue("feed2Url", m_feed2UrlEdit->text());
+    settings.setValue("feed2Refresh", m_feed2RefreshCombo->currentText());
+    settings.setValue("feed3Enabled", m_feed3Check->isChecked());
+    settings.setValue("feed3Url", m_feed3UrlEdit->text());
+    settings.setValue("feed3Refresh", m_feed3RefreshCombo->currentText());
+    
+    settings.setValue("dxClusterServer", m_dxClusterEdit->text());
+    
+    QStringList serversToSave;
+    QString currentSvr = m_dxClusterEdit->text();
+    bool found = false;
+    for(int i = 0; i < m_dxClusterCombo->count(); ++i) {
+        QString s = m_dxClusterCombo->itemText(i);
+        if (s.startsWith(currentSvr)) found = true;
+        serversToSave << s;
+    }
+    if (!found && !currentSvr.isEmpty()) {
+        serversToSave.prepend(currentSvr);
+        m_dxClusterCombo->insertItem(0, currentSvr);
+    }
+    settings.setValue("dxClusterList", serversToSave);
+
+    settings.setValue("feed1ScrollDir", m_scrollDirCombo1->currentData().toString());
+    settings.setValue("feed1ScrollSpeed", m_scrollSpeedSlider1->value());
+    settings.setValue("feed2ScrollDir", m_scrollDirCombo2->currentData().toString());
+    settings.setValue("feed2ScrollSpeed", m_scrollSpeedSlider2->value());
+    settings.setValue("feed3ScrollDir", m_scrollDirCombo3->currentData().toString());
+    settings.setValue("feed3ScrollSpeed", m_scrollSpeedSlider3->value());
+    settings.endGroup();
+    
+    settings.beginGroup("Files");
+    settings.setValue("userDirectory", m_userDirectoryEdit->text());
+    settings.setValue("logfile", m_logfileEdit->text());
+    settings.setValue("systemLogfile", m_systemLogfileEdit->text());
+    settings.setValue("debugLogfile", m_debugLogfileEdit->text());
+    settings.endGroup();
+    
+    settings.setValue("SkinColor", m_selectedColor);
+    settings.setValue("MapStyle", m_mapStyleCombo->currentIndex());
+    
+    settings.beginGroup("UI");
+    settings.setValue("statusScrollLimit", m_statusScrollLimit->value());
+    settings.setValue("clockFont", m_clockFont);
+    settings.setValue("clockColor", m_clockColor);
+    settings.setValue("feed1Font", m_feed1Font);
+    settings.setValue("feed1Color", m_feed1Color);
+    settings.setValue("feed2Font", m_feed2Font);
+    settings.setValue("feed2Color", m_feed2Color);
+    settings.setValue("feed3Font", m_feed3Font);
+    settings.setValue("feed3Color", m_feed3Color);
+    settings.setValue("callInfoFont", m_callInfoFont);
+    settings.setValue("callInfoColor", m_callInfoColor);
+    settings.setValue("qsoListFont", m_qsoListFont);
+    settings.setValue("qsoListColor", m_qsoListColor);
+    settings.endGroup();
+    emit settingsApplied();
+}
+
+void ConfigDialog::accept() {
+    applySettings();
+    QDialog::accept();
+}
+
+bool ConfigDialog::eventFilter(QObject *obj, QEvent *event) {
+    return QDialog::eventFilter(obj, event);
+}
+
+

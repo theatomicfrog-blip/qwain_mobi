@@ -1,0 +1,383 @@
+--- CMakeLists.txt	2026-07-16 12:40:31.012807235 +0000
++++ cpp_source/CMakeLists.txt	2026-07-16 12:40:31.076080397 +0000
+@@ -6,9 +6,15 @@
+ set(CMAKE_AUTOUIC ON)
+ set(CMAKE_AUTORCC ON)
+ 
+-find_package(Qt5 COMPONENTS Core Widgets Network Svg PrintSupport Sql XmlPatterns OpenGL REQUIRED)
+-set(QT_VERSION_MAJOR 5)
+-find_package(Qt5 COMPONENTS TextToSpeech QUIET)
++find_package(Qt5 COMPONENTS Core Widgets Network Svg PrintSupport Sql XmlPatterns OpenGL QUIET)
++if (Qt5_FOUND)
++    set(QT_VERSION_MAJOR 5)
++    find_package(Qt5 COMPONENTS TextToSpeech QUIET)
++else()
++    find_package(Qt6 COMPONENTS Core Widgets Network Svg SvgWidgets PrintSupport Sql OpenGL OpenGLWidgets REQUIRED)
++    set(QT_VERSION_MAJOR 6)
++    find_package(Qt6 COMPONENTS TextToSpeech QUIET)
++endif()
+ 
+ if (QT_VERSION_MAJOR EQUAL 6)
+     add_compile_definitions(QT_NO_XMLPATTERNS)
+@@ -19,6 +25,7 @@
+     mainwindow.cpp
+     mainwindow.h
+     configdialog.cpp
++    configdialog.cpp
+     configdialog.h
+     mailcheckdialog.cpp
+     mailcheckdialog.h
+--- build.sh	2026-07-16 12:40:30.473365207 +0000
++++ cpp_source/build.sh	2026-07-16 12:40:31.098912065 +0000
+@@ -9,11 +9,12 @@
+ # sudo apt-get install -y build-essential cmake qt6-base-dev libqt6svg6-dev ninja-build
+ 
+ # Fix for "build.ninja still dirty" - update file timestamps to current system time
+-find . -type f -exec touch {} + 2>/dev/null || true
++find .. -type f -exec touch {} + 2>/dev/null || true
+ 
+ # Build the project
++cd ..
+ rm -rf build
+ mkdir build
+ cd build
+-cmake -G "Unix Makefiles" -D CMAKE_C_COMPILER=gcc -D CMAKE_CXX_COMPILER=g++ ..
++cmake -G "Unix Makefiles" ..
+ make
+--- country-data.json.h	2026-07-16 12:40:30.474692979 +0000
++++ cpp_source/country-data.json.h	2026-07-16 12:40:30.479260999 +0000
+@@ -1,7 +1,15 @@
++// All rights reserved. Commercial use, redistribution, modification, or incorporation into any product or service requires prior written permission.
++// 
++// This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
++// 
++// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
++// 
++// You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
++
+ #ifndef COUNTRY_DATA_H
+ #define COUNTRY_DATA_H
+ 
+-const char* country_data_json = R"raw({
++static inline const char* country_data_json = R"raw({
+   "united states": ["usa"],
+   "united states of america": ["usa"],
+   "united kingdom": ["uk"],
+--- main.cpp	2026-07-16 12:40:31.014072362 +0000
++++ cpp_source/main.cpp	2026-07-16 12:40:30.485665485 +0000
+@@ -28,7 +28,9 @@
+ #include <QSharedMemory>
+ #include <QMessageBox>
+ 
++
+ QPixmap getAppLogo() {
++     
+     QPixmap pm;
+     pm = QPixmap(":/logo_QWAIN.png");
+     if (pm.isNull()) pm = QPixmap("logo_QWAIN.png");
+@@ -104,10 +106,15 @@
+     
+     QApplication app(argc, argv);
+     
++    
+     QSharedMemory sharedMemory("QwainSingleInstanceMemoryKey");
+     if (!sharedMemory.create(1)) {
+-        QMessageBox::warning(nullptr, "Qwain", "An instance of Qwain is already running.");
+-        return 0;
++        sharedMemory.attach();
++        sharedMemory.detach();
++        if (!sharedMemory.create(1)) {
++            QMessageBox::warning(nullptr, "Qwain", "An instance of Qwain is already running.");
++            return 0;
++        }
+     }
+ 
+     app.installEventFilter(new GlobalShortcutFilter(&app));
+@@ -140,14 +147,10 @@
+         splash = new QSplashScreen(splashPix, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
+         splash->setAttribute(Qt::WA_DeleteOnClose);
+         splash->setAttribute(Qt::WA_TranslucentBackground);
+-        splash->setWindowOpacity(0.01);
++        splash->setWindowOpacity(0.0);
+         splash->show();
++        app.processEvents();
+         
+-        QPropertyAnimation *fadeIn = new QPropertyAnimation(splash, "windowOpacity");
+-        fadeIn->setDuration(1000);
+-        fadeIn->setStartValue(0.01);
+-        fadeIn->setEndValue(1.0);
+-        fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
+     }
+     // ----------------------------------------
+ 
+@@ -185,25 +188,23 @@
+             )
+         );
+     }
+-    w.show();
+ 
+     if (splash) {
+-        // Program readiness achieved, now fade out
+-        // Note: The UI is already shown in the background (centered).
+-        QPropertyAnimation *fadeOut = new QPropertyAnimation(splash, "windowOpacity");
+-        fadeOut->setDuration(1000);
+-        fadeOut->setStartValue(1.0);
+-        fadeOut->setEndValue(0.0);
+-        QObject::connect(fadeOut, &QPropertyAnimation::finished, splash, [splash, &w]() {
+-            splash->finish(&w);
++        QPropertyAnimation *fadeIn = new QPropertyAnimation(splash, "windowOpacity");
++        fadeIn->setDuration(1000);
++        fadeIn->setStartValue(0.0);
++        fadeIn->setEndValue(1.0);
++        fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
++        QTimer::singleShot(2500, splash, [splash, &w]() {
++            w.show();
+             w.raise();
+             w.activateWindow();
++            splash->finish(&w);
+         });
+-        fadeOut->start(QAbstractAnimation::DeleteWhenStopped);
++    } else {
++        w.show();
++        w.raise();
++        w.activateWindow();
+     }
+-
+-    w.raise();
+-    w.activateWindow();
+-
+     return app.exec();
+ }
+--- qrc_resources.cpp	2026-07-16 12:40:31.089208812 +0000
++++ cpp_source/qrc_resources.cpp	2026-07-16 12:40:31.088139925 +0000
+@@ -7,7 +7,7 @@
+ *****************************************************************************/
+ 
+ static const unsigned char qt_resource_data[] = {
+-  // /app/applet/logo.png
++  // /app/applet/cpp_source/logo.png
+   0x0,0x3,0x52,0x97,
+   0xef,
+   0xbf,0xbd,0x50,0x4e,0x47,0xd,0xa,0x1a,0xa,0x0,0x0,0x0,0xd,0x49,0x48,0x44,
+@@ -13620,7 +13620,7 @@
+   0xef,0xbf,0xbd,0xef,0xbf,0xbd,0xef,0xbf,0xbd,0x7,0x77,0x61,0x11,0x4e,0x28,0xef,
+   0xbf,0xbd,0xef,0xbf,0xbd,0x78,0x0,0x0,0x0,0x0,0x49,0x45,0x4e,0x44,0xef,0xbf,
+   0xbd,0x42,0x60,0xef,0xbf,0xbd,
+-    // /app/applet/us_counties_map.svg
++    // /app/applet/cpp_source/us_counties_map.svg
+   0x0,0x11,0x84,0x51,
+   0x3c,
+   0x3f,0x78,0x6d,0x6c,0x20,0x76,0x65,0x72,0x73,0x69,0x6f,0x6e,0x3d,0x22,0x31,0x2e,
+@@ -24189,4 +24189,4 @@
+   0x2e,0x35,0x30,0x37,0x39,0x2d,0x31,0x2e,0x38,0x32,0x35,0x2d,0x31,0x2e,0x30,0x39,
+   0x38,0x35,0x2d,0x31,0x2e,0x36,0x31,0x34,0x2d,0x30,0x2e,0x33,0x31,0x32,0x2d,0x30,
+   0x2e,0x31,0x31,0x34,0x2d,0x31,0x2e,0x30,0x36,0x34,0x34,0x2d,0x30,0x2e,0x37,0x34,
+-  0x38,0x2d,0x30,0x2e,0x31,0x32,0x36,0x35,0x3
+\ No newline at end of file
++  0x38,0x2d,0x30,0x2e,0
+\ No newline at end of file
+--- qslpreviewdialog.cpp	2026-07-16 12:40:30.490970358 +0000
++++ cpp_source/qslpreviewdialog.cpp	2026-07-16 12:40:30.439879595 +0000
+@@ -2209,56 +2209,80 @@
+ 
+     bool origPreviewEnv = m_previewingEnvelope;
+     
+-    if (m_printQueue.size() > 1 && m_batchSequence == BatchSequence::CardsThenEnvelopes) {
+-        // We are printing all cards, then all envelopes
+-        if (!m_batchPrintingEnvelopesPhase && printCard) {
+-            m_previewingEnvelope = false;
+-            if (m_templateList->currentItem()) {
+-                onTemplateChosen(m_templateList->currentItem()->text());
+-            } else if (m_templateList->count() > 0) {
+-                onTemplateChosen(m_templateList->item(0)->text());
+-            }
+-            if (!performPrint(false)) {
+-                m_previewingEnvelope = origPreviewEnv;
+-                return;
+-            }
+-        } else if (m_batchPrintingEnvelopesPhase && printEnvelope) {
+-            m_previewingEnvelope = true;
+-            if (m_envTemplateList->currentItem()) {
+-                onTemplateChosen(m_envTemplateList->currentItem()->text());
+-            } else if (m_envTemplateList->count() > 0) {
+-                onTemplateChosen(m_envTemplateList->item(0)->text());
+-            }
+-            if (!performPrint(true)) {
+-                m_previewingEnvelope = origPreviewEnv;
+-                return;
+-            }
+-        }
+-    } else {
+-        // Normal or CardEnvelope sequence
+-        if (printCard) {
+-            m_previewingEnvelope = false;
+-            if (m_templateList->currentItem()) {
+-                onTemplateChosen(m_templateList->currentItem()->text());
+-            } else if (m_templateList->count() > 0) {
+-                onTemplateChosen(m_templateList->item(0)->text());
+-            }
+-            if (!performPrint(false)) {
+-                m_previewingEnvelope = origPreviewEnv;
+-                return;
+-            }
+-        }
++    bool keepGoing = true;
++    while(keepGoing) {
++        keepGoing = false;
+         
+-        if (printEnvelope) {
+-            m_previewingEnvelope = true;
+-            if (m_envTemplateList->currentItem()) {
+-                onTemplateChosen(m_envTemplateList->currentItem()->text());
+-            } else if (m_envTemplateList->count() > 0) {
+-                onTemplateChosen(m_envTemplateList->item(0)->text());
+-            }
+-            if (!performPrint(true)) {
+-                m_previewingEnvelope = origPreviewEnv;
+-                return;
++        if (m_printQueue.size() > 1 && m_batchSequence == BatchSequence::CardsThenEnvelopes) {
++            // We are printing all cards, then all envelopes
++            if (!m_batchPrintingEnvelopesPhase && printCard) {
++                m_previewingEnvelope = false;
++                if (m_templateList->currentItem()) {
++                    onTemplateChosen(m_templateList->currentItem()->text());
++                } else if (m_templateList->count() > 0) {
++                    onTemplateChosen(m_templateList->item(0)->text());
++                }
++                if (!performPrint(false)) {
++                    m_previewingEnvelope = origPreviewEnv;
++                    return;
++                }
++            } else if (m_batchPrintingEnvelopesPhase && printEnvelope) {
++                m_previewingEnvelope = true;
++                if (m_envTemplateList->currentItem()) {
++                    onTemplateChosen(m_envTemplateList->currentItem()->text());
++                } else if (m_envTemplateList->count() > 0) {
++                    onTemplateChosen(m_envTemplateList->item(0)->text());
++                }
++                if (!performPrint(true)) {
++                    if (m_reprintCardRequested) {
++                        m_previewingEnvelope = false;
++                        if (m_templateList->currentItem()) {
++                            onTemplateChosen(m_templateList->currentItem()->text());
++                        } else if (m_templateList->count() > 0) {
++                            onTemplateChosen(m_templateList->item(0)->text());
++                        }
++                        if (performPrint(false)) {
++                            keepGoing = true; // Try printing the envelope again
++                        }
++                    }
++                    if (!keepGoing) {
++                        m_previewingEnvelope = origPreviewEnv;
++                        return;
++                    }
++                }
++            }
++        } else {
++            // Normal or CardEnvelope sequence
++            if (printCard) {
++                m_previewingEnvelope = false;
++                if (m_templateList->currentItem()) {
++                    onTemplateChosen(m_templateList->currentItem()->text());
++                } else if (m_templateList->count() > 0) {
++                    onTemplateChosen(m_templateList->item(0)->text());
++                }
++                if (!performPrint(false)) {
++                    m_previewingEnvelope = origPreviewEnv;
++                    return;
++                }
++            }
++            
++            if (printEnvelope) {
++                m_previewingEnvelope = true;
++                if (m_envTemplateList->currentItem()) {
++                    onTemplateChosen(m_envTemplateList->currentItem()->text());
++                } else if (m_envTemplateList->count() > 0) {
++                    onTemplateChosen(m_envTemplateList->item(0)->text());
++                }
++                if (!performPrint(true)) {
++                    if (m_reprintCardRequested) {
++                        printCard = true;
++                        keepGoing = true;
++                    }
++                    if (!keepGoing) {
++                        m_previewingEnvelope = origPreviewEnv;
++                        return;
++                    }
++                }
+             }
+         }
+     }
+@@ -2393,6 +2417,23 @@
+     QDialogButtonBox *btnBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &confirmDlg);
+     connect(btnBox, &QDialogButtonBox::accepted, &confirmDlg, &QDialog::accept);
+     connect(btnBox, &QDialogButtonBox::rejected, &confirmDlg, &QDialog::reject);
++    
++    QPushButton *btnReprintCard = nullptr;
++    QPushButton *btnMakeChanges = nullptr;
++    if (isEnvelope) {
++        btnMakeChanges = new QPushButton("Make Changes");
++        btnBox->addButton(btnMakeChanges, QDialogButtonBox::ActionRole);
++        btnReprintCard = new QPushButton("Reprint Card");
++        btnBox->addButton(btnReprintCard, QDialogButtonBox::ActionRole);
++        
++        connect(btnReprintCard, &QPushButton::clicked, [&](){
++            confirmDlg.done(2);
++        });
++        connect(btnMakeChanges, &QPushButton::clicked, [&](){
++            confirmDlg.done(3);
++        });
++    }
++
+     layout->addWidget(btnBox);
+     
+     bool skipConfirm = false;
+@@ -2404,9 +2445,18 @@
+             skipConfirm = true;
+         }
+     }
+-
++    m_reprintCardRequested = false;
+     if (!skipConfirm) {
+-        if (confirmDlg.exec() != QDialog::Accepted) {
++        int res = confirmDlg.exec();
++        if (res == 3) {
++            // Make Changes -> close preview dialog completely, keep queue intact
++            this->reject();
++            return false;
++        } else if (res == 2) {
++            // Reprint Card -> return back and reprint
++            m_reprintCardRequested = true;
++            return false;
++        } else if (res != QDialog::Accepted) {
+             return false;
+         }
+         
+--- qslpreviewdialog.h	2026-07-16 12:40:31.032956180 +0000
++++ cpp_source/qslpreviewdialog.h	2026-07-16 12:40:31.018867790 +0000
+@@ -100,6 +100,7 @@
+     QListWidget *m_templateList = nullptr;
+     QListWidget *m_envTemplateList = nullptr;
+     bool m_previewingEnvelope = false;
++    bool m_reprintCardRequested = false;
+     QWidget *m_previewWindow = nullptr;
+     class QNetworkAccessManager *m_netManager = nullptr;
+     
+--- world-states-provinces.svg.h	2026-07-16 12:40:31.089319407 +0000
++++ cpp_source/world-states-provinces.svg.h	2026-07-16 12:40:31.078006248 +0000
+@@ -1,6 +1,14 @@
++// All rights reserved. Commercial use, redistribution, modification, or incorporation into any product or service requires prior written permission.
++// 
++// This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
++// 
++// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
++// 
++// You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
++
+ #ifndef WOL_H
+ #define WOL_H
+-const char* world_states_provinces_svg = R"raw(<?xml version="1.0" encoding="UTF-8" standalone="no"?>
++static inline const char* world_states_provinces_svg = R"raw(<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+ <!-- Generator: Adobe Illustrator 14.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 43363)  -->
+ 
+ <svg

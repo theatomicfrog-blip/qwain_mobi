@@ -1,0 +1,15 @@
+27:#include <QVBoxLayout>
+406:        QVBoxLayout *mainLayout = new QVBoxLayout(&d);
+684:            QVBoxLayout *vl = new QVBoxLayout(&d);
+744:            QVBoxLayout *vl = new QVBoxLayout(&d);
+1119:                QVBoxLayout *vl = new QVBoxLayout(&d);
+1239:    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+1244:    QVBoxLayout *leftCtrl = new QVBoxLayout();
+1429:    QVBoxLayout *propLayout = new QVBoxLayout(propFrame);
+1483:    QVBoxLayout *tmLayout = new QVBoxLayout(tmFrame);
+1486:    QVBoxLayout *cardsLayout = new QVBoxLayout();
+1492:    QVBoxLayout *envsLayout = new QVBoxLayout();
+1639:        QVBoxLayout *vl = new QVBoxLayout(&d);
+1809:        QVBoxLayout *vl = new QVBoxLayout(d);
+2124:    QVBoxLayout *vl = new QVBoxLayout(&d);
+2549:    QVBoxLayout *vl = new QVBoxLayout(&d);

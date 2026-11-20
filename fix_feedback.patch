@@ -1,0 +1,33 @@
+--- cpp_source/europeawarddialog.cpp
++++ cpp_source/europeawarddialog.cpp
+@@ -10,6 +10,7 @@
+ #include <QJsonDocument>
+ #include <QJsonArray>
+ #include <QProgressBar>
++#include <QPushButton>
+ 
+ #include "world-states-provinces.svg.h"
+ #include "country-data.json.h"
+@@ -139,7 +140,16 @@
+     progress->setFormat(QString("%1 / %2 (%3%)").arg(workedCount).arg(euCountries.size()).arg((workedCount * 100) / euCountries.size()));
+     rightLayout->addWidget(progress);
+     
++    QPushButton *debugBtn = new QPushButton("Debug DXCC Matching", this);
++    connect(debugBtn, &QPushButton::clicked, this, [this, workedCountriesList]() {
++        QDialog *dlg = new QDialog(this);
++        dlg->setWindowTitle("DXCC Matching Feedback");
++        dlg->resize(400, 300);
++        QVBoxLayout *l = new QVBoxLayout(dlg);
++        QTextEdit *t = new QTextEdit(dlg);
++        t->setReadOnly(true);
++        QStringList out;
++        out << "<b>Your Logfile contains the following DXCC countries:</b><br/>";
++        for (const QString &c : workedCountriesList) out << c;
++        t->setHtml(out.join("<br/>"));
++        l->addWidget(t);
++        dlg->show();
++    });
++    rightLayout->addWidget(debugBtn);
++
+     contentLayout->addLayout(rightLayout, 1);
+     mainLayout->addLayout(contentLayout);

@@ -1,0 +1,12 @@
+{
+  "name": "Qwain",
+  "description": "An amateur radio ADIF log viewer and manager with QRZ integration, custom SQLite databases, offline support, SQLite exporting, backup features, and native compiled resources.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API",
+    "OFFLINE_MODE",
+    "SQLITE_EXPORT",
+    "BACKUP_MANAGEMENT",
+    "AI_INTEGRATION"
+  ]
+}

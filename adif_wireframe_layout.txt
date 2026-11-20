@@ -1,0 +1,140 @@
+I have fixed the issue where POTA map icons (evergreen trees) were not rendering for gridless QSOs. The internal tracking state has been updated so that when TestMapDialog receives explicit park coordinates without grids, it properly registers them on the Maidenhead overlay mapping system instead of discarding them.
+🗺️ Full Application Wireframe & Architecture Map
+1. Menu Hierarchy (Main Window)
+
+    File
+
+        Exit
+
+    Configuration
+
+        QRZ Username (Dynamic indicator)
+
+        IP Address
+
+        Port
+
+        Logfile (Dynamic indicator)
+
+        Settings... -> Opens ConfigDialog
+
+    Award Tracking
+
+        Testing World Map -> Opens TestMapDialog
+
+        Worked All Japan -> Opens TestMapDialog
+
+        Re-Scan Log File
+
+    Misc
+
+        QRZ Cache Viewer -> Opens CacheViewerDialog
+
+        SPISPOPD (Doom Easter egg)
+
+        Backup (Full)
+
+        Backup (Data Only)
+
+        Restore from Backup
+
+    Viewports
+
+        Dynamic Views List...
+
+        Countries Worked
+
+    QSL Handling
+
+        Paper QSL Manager -> Opens QslDesigner
+
+        QSL Designer -> Opens QslDesigner2
+
+        Image Viewer/Editor -> Opens ImageEditorDialog
+
+    About
+
+        Version Info
+
+2. Windows & Visual Wireframes
+
+A. MainWindow (Core Application Interface)
+code Text
+
++------------------------------------------------------------------------------------+
+|  [ QSO Search Input ] [ Search ]    File | Configuration | Award Tracking | Misc...|
++------------------------------------------------------------------------------------+
+|                                                  |   TIME: 00:00:00                |
+|                                                  |   DATE: 1970-01-01              |
+|             Massive Web/Text Browser             |   +--------------------------+  |
+|             (Live Logger Feed & WSJT-X)          |   |      [X] Logo Space      |  |
+|                                                  |   +--------------------------+  |
+|                                                  |   Leaderboard / Activity    |  |
+|                                                  |   [ Table UI ]               |  |
++------------------------------------------------------------------------------------+
+
+B. TestMapDialog (Award Tracking Map)
+code Text
+
++------------------------------------------------------------------------------------+
+|  [ Award Match Criteria Details Pane ]                          [ Zoom In / Out ]  |
++------------------------------------------------------------------------------------+
+|                                                                                    |
+|                                                                                    |
+|                         Interactive Map Canvas (QGraphicsScene)                    |
+|                         [ Renders Maidenhead Grids or Customs ]                    |
+|                                                                                    |
++------------------------------------------------------------------------------------+
+| Band Filters: [ ] 10M [ ] 15M ...                     Mode Filters: [ ] FT8 [ ] CW |
+| Overlay Modifiers: [ Slider: Tree Scale ] [ ] Cities                               |
++------------------------------------------------------------------------------------+
+
+C. ConfigDialog (Settings)
+code Text
+
++------------------------------------------------------------------------------------+
+|  [ Sidebar Group List ]     |   [ Selected Settings Page Context ]                 |
+|  - Callsign & Info          |  [ Input ] Operator Callsign                         |
+|  - Award Definitions        |  [ Input ] Grid Square                               |
+|  - Network Integration      |  [ Input ] Theme Modifiers                           |
+|  - Animation / Map Rules    |                                                      |
++-----------------------------+------------------------------------------------------+
+|                           [ Save Settings ] [ Cancel ]                             |
++------------------------------------------------------------------------------------+
+
+D. QslDesigner2 (WYSIWYG Poster/QSL Editor)
+code Text
+
++------------------------------------------------------------------------------------+
+| New | Open | Save | Setup Grid | Run Test...                                       |
++-------------------------------------------------[ Object Properties Panel ]--------+
+|                                                 | X / Y Positioning                |
+|           Visual Graphics Canvas                | Font Settings / Border Sizes     |
+|         (Drag & Drop Layout Design)             | Block Type Variables             |
+|                                                 | Z-Index Order Layout             |
+|                                                 | Image Opacity                    |
+|                                                 |                                  |
++------------------------------------------------------------------------------------+
+
+E. CacheViewerDialog (QRZ Cache Lookup Viewer)
+code Text
+
++------------------------------------------------------------------------------------+
+|                                                                                    |
+|               Read-Only Spreadsheet Table (QTableWidget)                           |
+|               [ Call ] | [ Name ] | [ QTH ] | [ Grid ] | [ Entity ]                |
+|                                                                                    |
++------------------------------------------------------------------------------------+
+| [ Close Viewer ]                                                                   |
++------------------------------------------------------------------------------------+
+
+F. ImageEditorDialog (Map Calibrations / Layout Overlay Settings)
+code Text
+
++------------------------------------------------------------------------------------+
+|  Latitude Reference Configuration                                                  |
+|  Longitude Reference Configuration                                                 |
+|  Scale Factors / Overlay Anchors / Source Uploads                                  |
++------------------------------------------------------------------------------------+
+|                               [ Submit Coordinates ]                               |
++------------------------------------------------------------------------------------+

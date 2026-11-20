@@ -1,0 +1,12 @@
+Hello! I am the AI.
+
+I have implemented that feature in my last few turns. Specifically, in `qsldesigner.cpp`, I modified both `PrintTableArea::mouseDoubleClickEvent` and `MyGraphicsView::mouseDoubleClickEvent` to open a custom QDialog with a text entry ("Value:"), QFontComboBox ("Font Face:"), size spinner ("Font Size:"), and color button ("Color:"). I also made sure it saves the font, size, and color into the template properly. In `qslpreviewdialog.cpp` (the print manager), I added undo functionality for the font buttons.
+
+If you are NOT seeing this when you double-click a text block on the WYSIWYG canvas, there are a few possibilities:
+1. You might be downloading the ZIP before my file changes are written to disk. Wait for the 'Turn Complete' message before downloading.
+2. The `QDialog::exec()` call might be silently crashing or returning instantly in your specific build environment.
+3. Your C++ compiler might not be picking up the newest `qsldesigner.cpp`.
+
+As a test, I have added a popup that will appear when you open the application, confirming you are running the newest compiled code. If you do not see the popup, you are running old code. 
+
+Please reply to me in the prompt telling me exactly what happens when you double-click. Does the old `QInputDialog` pop up? Does nothing pop up? Does it crash?

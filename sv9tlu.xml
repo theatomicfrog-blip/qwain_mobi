@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
+<Callsign>
+<call>SV9TLU</call>
+<dxcc>40</dxcc>
+<fname>Kostas</fname>
+<name>Zervos</name>
+<addr1>El gkreko 13</addr1>
+<addr2>Gazi</addr2>
+<zip>71414</zip>
+<country>Crete</country>
+<lat>35.310197</lat>
+<lon>25.089374</lon>
+<grid>KM25nh</grid>
+<ccode>1107</ccode>
+<land>Crete</land>
+<qslmgr>PSE QSL ONLY DIRECT AND SAE WITH 3$</qslmgr>
+<email>zerbosk@gmail.com</email>
+<u_views>67900</u_views>
+<bio>3243</bio>
+<biodate>2026-05-15 02:11:46</biodate>
+<image>https://cdn-xml.qrz.com/u/sv9tlu/8740117481_2191142908323019402_n.jpg</image>
+<imageinfo>800:1200:126663</imageinfo>
+<moddate>2026-04-22 09:22:44</moddate>
+<eqsl>0</eqsl>
+<mqsl>0</mqsl>
+<iota>EU-015</iota>
+<born>1988</born>
+<lotw>0</lotw>
+<geoloc>user</geoloc>
+<name_fmt>Kostas Zervos</name_fmt>
+<serial>2639932</serial>
+</Callsign>
+<Session>
+<Key>af8cc0209926628c4ad66a7818146a2b</Key>
+<Count>28970</Count>
+<SubExp>Sun Feb  7 06:28:15 2106</SubExp>
+<GMTime>Mon May 25 22:57:25 2026</GMTime>
+<Remark>cpu: 0.026s</Remark>
+</Session>
+</QRZDatabase>
